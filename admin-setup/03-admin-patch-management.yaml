@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Development Environment Patch Management'
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: DevelopmentEnv
+    Description: Project tag value for all resources
+  
+  ManagedByTag:
+    Type: String
+    Default: Administrator
+    Description: ManagedBy tag value for all resources
+
+Resources:
+  PatchBaseline:
+    Type: AWS::SSM::PatchBaseline
+    Properties:
+      Name: DevEnvironmentPatchBaseline
+      OperatingSystem: UBUNTU
+      ApprovalRules:
+        PatchRules:
+          - ApproveAfterDays: 7
+            ComplianceLevel: CRITICAL
+            PatchFilterGroup:
+              PatchFilters:
+                - Key: CLASSIFICATION
+                  Values:
+                    - Security
+                    - Bugfix
+                    - Enhancement
+                - Key: SEVERITY
+                  Values:
+                    - Critical
+                    - Important
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+  MaintenanceWindow:
+    Type: AWS::SSM::MaintenanceWindow
+    Properties:
+      Name: DevEnvironmentMaintenanceWindow
+      Schedule: cron(0 2 ? * SUN *)
+      Duration: 3
+      Cutoff: 1
+      AllowUnassociatedTargets: false
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+  MaintenanceWindowTarget:
+    Type: AWS::SSM::MaintenanceWindowTarget
+    Properties:
+      WindowId: !Ref MaintenanceWindow
+      ResourceType: INSTANCE
+      Targets:
+        - Key: tag:Project
+          Values:
+            - !Ref ProjectTag
+        - Key: tag:ManagedBy
+          Values:
+            - !Ref ManagedByTag
+
+  MaintenanceWindowTask:
+    Type: AWS::SSM::MaintenanceWindowTask
+    Properties:
+      WindowId: !Ref MaintenanceWindow
+      TaskType: RUN_COMMAND
+      TaskArn: AWS-RunPatchBaseline
+      Priority: 1
+      Targets:
+        - Key: WindowTargetIds
+          Values:
+            - !Ref MaintenanceWindowTarget
+      TaskParameters:
+        '{"Operation":{"Values":["Install"]},"RebootOption":{"Values":["RebootIfNeeded"]}}'
+      MaxConcurrency: 10
+      MaxErrors: 5
+
+Outputs:
+  PatchBaselineId:
+    Description: ID of the Ubuntu Patch Baseline
+    Value: !Ref PatchBaseline
+    Export:
+      Name: DevEnvironment-PatchBaselineId
+  
+  MaintenanceWindowId:
+    Description: ID of the Maintenance Window
+    Value: !Ref MaintenanceWindow
+    Export:
+      Name: DevEnvironment-MaintenanceWindowId

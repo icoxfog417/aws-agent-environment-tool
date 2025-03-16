@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Main Developer Environment Setup Template'
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: DevelopmentEnv
+    Description: Project tag value for all resources
+  
+  ManagedByTag:
+    Type: String
+    Default: Developer
+    Description: ManagedBy tag value for all resources
+  
+  InstanceSpec:
+    Type: String
+    Default: "Normal"
+    Description: Instance specification level
+    AllowedValues:
+      - "Normal"
+      - "High"
+      - "Extra"
+  
+  DeveloperEmail:
+    Type: String
+    Description: Email of the developer deploying this environment (required for contact)
+
+Mappings:
+  InstanceSpecMap:
+    Normal:
+      Type: t3.medium
+    High:
+      Type: t3.large
+    Extra:
+      Type: t3.xlarge
+
+Resources:
+  DeveloperEnvironmentStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./01-developer-ec2-instance.yaml
+      Parameters:
+        InstanceType: !FindInMap [InstanceSpecMap, !Ref InstanceSpec, Type]
+        DeveloperEmail: !Ref DeveloperEmail
+        ProjectTag: !Ref ProjectTag
+        ManagedByTag: !Ref ManagedByTag
+      TimeoutInMinutes: 20
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: Email
+          Value: !Ref DeveloperEmail
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+        - Key: Environment
+          Value: Development
+
+Outputs:
+  InstanceId:
+    Description: ID of the EC2 instance
+    Value: !GetAtt DeveloperEnvironmentStack.Outputs.InstanceId
+  
+  SecurityGroupId:
+    Description: ID of the security group
+    Value: !GetAtt DeveloperEnvironmentStack.Outputs.SecurityGroupId
+  
+  SelectedInstanceType:
+    Description: Selected EC2 instance type
+    Value: !FindInMap [InstanceSpecMap, !Ref InstanceSpec, Type]

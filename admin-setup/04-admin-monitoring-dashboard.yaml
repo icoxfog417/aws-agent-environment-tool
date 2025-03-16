@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Development Environment Monitoring Dashboard'
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: DevelopmentEnv
+    Description: Project tag value for all resources
+  
+  ManagedByTag:
+    Type: String
+    Default: Administrator
+    Description: ManagedBy tag value for all resources
+
+Resources:
+  # Simple dashboard showing only instance count
+  DevEnvironmentDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: DevEnvironmentDashboard
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 24,
+              "height": 9,
+              "properties": {
+                "metrics": [
+                  [ "AWS/EC2", "CPUUtilization", "tag:Project", "${ProjectTag}", { "stat": "SampleCount", "label": "Number of Running Instances" } ]
+                ],
+                "view": "timeSeries",
+                "region": "${AWS::Region}",
+                "title": "Number of Running Instances",
+                "period": 300,
+                "yAxis": {
+                  "left": {
+                    "min": 0
+                  }
+                }
+              }
+            },
+            {
+              "type": "text",
+              "x": 0,
+              "y": 9,
+              "width": 24,
+              "height": 3,
+              "properties": {
+                "markdown": "# Development Environment Cost Optimization\n\nMonitor the number of running instances to optimize costs. Consider implementing automated instance management in the future to stop idle instances."
+              }
+            }
+          ]
+        }
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+  # Create a CloudWatch alarm for idle instances
+  IdleInstancesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${ProjectTag}-IdleInstancesAlarm"
+      AlarmDescription: "Alarm when instances have low CPU utilization for extended periods"
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Dimensions:
+        - Name: tag:Project
+          Value: !Ref ProjectTag
+      Period: 3600  # 1 hour
+      EvaluationPeriods: 24  # Check for 24 consecutive periods
+      Threshold: 5.0  # 5% CPU utilization
+      ComparisonOperator: LessThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+Outputs:
+  DashboardURL:
+    Description: URL for the Instance Count Dashboard
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${DevEnvironmentDashboard}"
+    Export:
+      Name: DevEnvironment-DashboardURL

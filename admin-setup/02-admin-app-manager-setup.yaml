@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Application Manager Configuration for Development Environment'
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: DevelopmentEnv
+    Description: Project tag value for all resources
+  
+  ManagedByTag:
+    Type: String
+    Default: Administrator
+    Description: ManagedBy tag value for all resources
+
+Resources:
+  DevEnvironmentApplication:
+    Type: AWS::ServiceCatalogAppRegistry::Application
+    Properties:
+      Name: DevEnvironment
+      Description: Development Environment for Team
+      Tags:
+        Environment: Development
+        Project: !Ref ProjectTag
+        ManagedBy: !Ref ManagedByTag
+
+  # Create a resource group for the application
+  DevEnvironmentResourceGroup:
+    Type: AWS::ResourceGroups::Group
+    Properties:
+      Name: DevEnvironmentResourceGroup
+      Description: Resource group for Development Environment
+      ResourceQuery:
+        Type: TAG_FILTERS_1_0
+        Query: 
+          ResourceTypeFilters:
+            - "AWS::AllSupported"
+          TagFilters:
+            - Key: Project
+              Values:
+                - !Ref ProjectTag
+            - Key: ManagedBy
+              Values:
+                - !Ref ManagedByTag
+      Tags:
+        Project: !Ref ProjectTag
+        ManagedBy: !Ref ManagedByTag
+
+Outputs:
+  ApplicationId:
+    Description: Application ID for DevEnvironment
+    Value: !GetAtt DevEnvironmentApplication.Id
+    Export:
+      Name: DevEnvironment-ApplicationId

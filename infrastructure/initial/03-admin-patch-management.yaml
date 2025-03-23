@@ -4,7 +4,7 @@ Description: 'Development Environment Patch Management'
 Parameters:
   ProjectTag:
     Type: String
-    Default: DevelopmentEnv
+    Default: AgentDevEnv
     Description: Project tag value for all resources
   
   ManagedByTag:
@@ -16,7 +16,7 @@ Resources:
   PatchBaseline:
     Type: AWS::SSM::PatchBaseline
     Properties:
-      Name: DevEnvironmentPatchBaseline
+      Name: AgentDevEnvPatchBaseline
       OperatingSystem: UBUNTU
       ApprovalRules:
         PatchRules:
@@ -42,7 +42,7 @@ Resources:
   MaintenanceWindow:
     Type: AWS::SSM::MaintenanceWindow
     Properties:
-      Name: DevEnvironmentMaintenanceWindow
+      Name: AgentDevEnvMaintenanceWindow
       Schedule: cron(0 2 ? * SUN *)
       Duration: 3
       Cutoff: 1
@@ -77,8 +77,13 @@ Resources:
         - Key: WindowTargetIds
           Values:
             - !Ref MaintenanceWindowTarget
-      TaskParameters:
-        '{"Operation":{"Values":["Install"]},"RebootOption":{"Values":["RebootIfNeeded"]}}'
+      TaskParameters: 
+        Operation:
+          Values:
+            - Install
+        RebootOption:
+          Values:
+            - RebootIfNeeded
       MaxConcurrency: 10
       MaxErrors: 5
 
@@ -87,10 +92,10 @@ Outputs:
     Description: ID of the Ubuntu Patch Baseline
     Value: !Ref PatchBaseline
     Export:
-      Name: DevEnvironment-PatchBaselineId
+      Name: AgentDevEnv-PatchBaselineId
   
   MaintenanceWindowId:
     Description: ID of the Maintenance Window
     Value: !Ref MaintenanceWindow
     Export:
-      Name: DevEnvironment-MaintenanceWindowId
+      Name: AgentDevEnv-MaintenanceWindowId

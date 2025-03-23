@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Master deployment template for Agent Development Environment Infrastructure'
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: AgentDevEnv
+    Description: Project tag value for all resources
+  
+  ManagedByTag:
+    Type: String
+    Default: Administrator
+    Description: ManagedBy tag value for all resources
+    
+  PortfolioName:
+    Type: String
+    Default: Development Environment Portfolio
+    Description: Name of the Service Catalog portfolio
+  
+  PortfolioDescription:
+    Type: String
+    Default: Portfolio containing development environment templates
+    Description: Description of the Service Catalog portfolio
+  
+  PortfolioOwner:
+    Type: String
+    Default: IT Administrator
+    Description: Owner of the Service Catalog portfolio
+    
+  ArtifactBucketName:
+    Type: String
+    Description: Name of the S3 bucket for storing artifacts (including account ID suffix)
+    
+Resources:
+  NetworkInfrastructureStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${ArtifactBucketName}.s3.${AWS::Region}.amazonaws.com/infrastructure/01-admin-network-infrastructure.yaml'
+      Parameters:
+        ProjectTag: !Ref ProjectTag
+        ManagedByTag: !Ref ManagedByTag
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+  ServiceCatalogSetupStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: NetworkInfrastructureStack
+    Properties:
+      TemplateURL: !Sub 'https://${ArtifactBucketName}.s3.${AWS::Region}.amazonaws.com/infrastructure/02-admin-service-catalog-setup.yaml'
+      Parameters:
+        ProjectTag: !Ref ProjectTag
+        ManagedByTag: !Ref ManagedByTag
+        PortfolioName: !Ref PortfolioName
+        PortfolioDescription: !Ref PortfolioDescription
+        PortfolioOwner: !Ref PortfolioOwner
+        ArtifactBucketName: !Ref ArtifactBucketName
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+#  PatchManagementStack:
+#    Type: AWS::CloudFormation::Stack
+#    DependsOn: ServiceCatalogSetupStack
+#    Properties:
+#      TemplateURL: !Sub 'https://${ArtifactBucketName}.s3.${AWS::Region}.amazonaws.com/infrastructure/03-admin-patch-management.yaml'
+#      Parameters:
+#        ProjectTag: !Ref ProjectTag
+#        ManagedByTag: !Ref ManagedByTag
+#      Tags:
+#        - Key: Project
+#          Value: !Ref ProjectTag
+#        - Key: ManagedBy
+#          Value: !Ref ManagedByTag
+
+#  MonitoringDashboardStack:
+#    Type: AWS::CloudFormation::Stack
+#    DependsOn: PatchManagementStack
+#    Properties:
+#      TemplateURL: !Sub 'https://${ArtifactBucketName}.s3.${AWS::Region}.amazonaws.com/infrastructure/04-admin-monitoring-dashboard.yaml'
+#      Parameters:
+#        ProjectTag: !Ref ProjectTag
+#        ManagedByTag: !Ref ManagedByTag
+#      Tags:
+#        - Key: Project
+#          Value: !Ref ProjectTag
+#        - Key: ManagedBy
+#          Value: !Ref ManagedByTag
+
+  # Template Infrastructure Stack
+  LaunchTemplateStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: ServiceCatalogSetupStack
+    Properties:
+      TemplateURL: !Sub 'https://${ArtifactBucketName}.s3.${AWS::Region}.amazonaws.com/infrastructure/05-admin-launch-template.yaml'
+      Parameters:
+        ProjectTag: !Ref ProjectTag
+        ManagedByTag: !Ref ManagedByTag
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+  ServiceCatalogRegistrationStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: LaunchTemplateStack
+    Properties:
+      TemplateURL: !Sub 'https://${ArtifactBucketName}.s3.${AWS::Region}.amazonaws.com/infrastructure/06-admin-register-launch-templates.yaml'
+      Parameters:
+        ProjectTag: !Ref ProjectTag
+        ManagedByTag: !Ref ManagedByTag
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+Outputs:
+  PortfolioId:
+    Description: ID of the Service Catalog Portfolio
+    Value: !GetAtt ServiceCatalogSetupStack.Outputs.PortfolioId
+    Export:
+      Name: AgentDevEnv-PortfolioId-Master
+
+  ServiceCatalogLaunchRoleArn:
+    Description: ARN of the Service Catalog Launch Role
+    Value: !GetAtt ServiceCatalogSetupStack.Outputs.ServiceCatalogLaunchRoleArn
+    Export:
+      Name: AgentDevEnv-ServiceCatalogLaunchRoleArn-Master
+      
+  ArtifactBucketName:
+    Description: Name of the S3 bucket for storing artifacts
+    Value: !GetAtt ServiceCatalogSetupStack.Outputs.ArtifactBucketName
+    Export:
+      Name: AgentDevEnv-ArtifactBucketName-Master

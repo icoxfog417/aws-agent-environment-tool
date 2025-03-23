@@ -4,7 +4,7 @@ Description: 'Development Environment Monitoring Dashboard'
 Parameters:
   ProjectTag:
     Type: String
-    Default: DevelopmentEnv
+    Default: AgentDevEnv
     Description: Project tag value for all resources
   
   ManagedByTag:
@@ -127,4 +127,4 @@ Outputs:
     Description: URL for the Development Environment Dashboard
     Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${DevEnvironmentDashboard}"
     Export:
-      Name: DevEnvironment-DashboardURL
+      Name: AgentDevEnv-DashboardURL

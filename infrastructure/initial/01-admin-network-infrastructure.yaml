@@ -4,7 +4,7 @@ Description: 'Base Network Infrastructure for Development Environments'
 Parameters:
   ProjectTag:
     Type: String
-    Default: DevelopmentEnv
+    Default: AgentDevEnv
     Description: Project tag value for all resources
   
   ManagedByTag:
@@ -21,7 +21,7 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: DevEnvironmentVPC
+          Value: AgentDevEnvVPC
         - Key: Project
           Value: !Ref ProjectTag
         - Key: ManagedBy
@@ -35,7 +35,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs '']
       Tags:
         - Key: Name
-          Value: DevEnvironment-PrivateSubnet1
+          Value: AgentDevEnv-PrivateSubnet1
         - Key: Project
           Value: !Ref ProjectTag
         - Key: ManagedBy
@@ -49,7 +49,7 @@ Resources:
       AvailabilityZone: !Select [1, !GetAZs '']
       Tags:
         - Key: Name
-          Value: DevEnvironment-PrivateSubnet2
+          Value: AgentDevEnv-PrivateSubnet2
         - Key: Project
           Value: !Ref ProjectTag
         - Key: ManagedBy
@@ -131,16 +131,16 @@ Outputs:
     Description: VPC ID
     Value: !Ref DevVPC
     Export:
-      Name: DevEnvironment-VpcId
+      Name: AgentDevEnv-VpcId
   
   PrivateSubnet1Id:
     Description: Private Subnet 1 ID
     Value: !Ref PrivateSubnet1
     Export:
-      Name: DevEnvironment-PrivateSubnet1Id
+      Name: AgentDevEnv-PrivateSubnet1Id
   
   PrivateSubnet2Id:
     Description: Private Subnet 2 ID
     Value: !Ref PrivateSubnet2
     Export:
-      Name: DevEnvironment-PrivateSubnet2Id
+      Name: AgentDevEnv-PrivateSubnet2Id

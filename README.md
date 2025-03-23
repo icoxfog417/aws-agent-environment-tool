@@ -45,7 +45,7 @@ uv add boto3 click
 2. Deploy the infrastructure:
 
 ```bash
-python -m application.cli admin deploy [--region REGION]
+uv run python -m application.cli admin deploy [--region REGION]
 ```
 
 #### Infrastructure Deployment Details
@@ -110,7 +110,7 @@ As an agent, you can launch your working environment:
 1. Launch a new environment:
 
 ```bash
-python -m application.cli developer launch [--region REGION] [--type standard|high|extra]
+uv run python -m application.cli developer launch [--region REGION] [--type standard|high|extra]
 ```
 
 2. Check the status of your environment:

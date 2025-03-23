@@ -8,6 +8,7 @@ import sys
 import json
 import datetime
 import time
+from pathlib import Path
 import click
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
@@ -34,7 +35,7 @@ def get_aws_region() -> str:
     return region
 
 
-def deploy_cloudformation_stack(template_path: str, stack_name: str, region: str) -> None:
+def deploy_cloudformation_stack(template_path: str, stack_name: str, region: str, parameters: Optional[Dict[str, str]] = None) -> None:
     """Deploy a CloudFormation stack using boto3"""
     cf_client = boto3.client('cloudformation', region_name=region)
     
@@ -55,12 +56,22 @@ def deploy_cloudformation_stack(template_path: str, stack_name: str, region: str
     action = "Updating" if stack_exists else "Creating"
     click.echo(f"{action} stack: {stack_name}")
     
+    # Convert parameters to CloudFormation format if provided
+    cf_parameters = []
+    if parameters:
+        for key, value in parameters.items():
+            cf_parameters.append({
+                'ParameterKey': key,
+                'ParameterValue': value
+            })
+    
     # Deploy the stack
     try:
         if stack_exists:
             cf_client.update_stack(
                 StackName=stack_name,
                 TemplateBody=template_body,
+                Parameters=cf_parameters,
                 Capabilities=['CAPABILITY_NAMED_IAM'],
                 Tags=[
                     {'Key': 'ManagedBy', 'Value': 'CloudFormation'},
@@ -71,6 +82,7 @@ def deploy_cloudformation_stack(template_path: str, stack_name: str, region: str
             cf_client.create_stack(
                 StackName=stack_name,
                 TemplateBody=template_body,
+                Parameters=cf_parameters,
                 Capabilities=['CAPABILITY_NAMED_IAM'],
                 Tags=[
                     {'Key': 'ManagedBy', 'Value': 'CloudFormation'},
@@ -90,6 +102,106 @@ def deploy_cloudformation_stack(template_path: str, stack_name: str, region: str
         else:
             click.echo(f"Error deploying stack: {e}", err=True)
             sys.exit(1)
+
+
+def check_s3_bucket_exists(bucket_name: str, region: str) -> bool:
+    """Check if an S3 bucket exists"""
+    s3_client = boto3.client('s3', region_name=region)
+    
+    try:
+        s3_client.head_bucket(Bucket=bucket_name)
+        return True
+    except ClientError as e:
+        error_code = int(e.response['Error']['Code'])
+        if error_code == 404:
+            return False
+        else:
+            click.echo(f"Error checking bucket: {e}", err=True)
+            sys.exit(1)
+
+
+def create_s3_bucket(bucket_name: str, region: str) -> None:
+    """Create an S3 bucket with versioning and encryption enabled"""
+    s3_client = boto3.client('s3', region_name=region)
+    
+    click.echo(f"Creating S3 bucket: {bucket_name}")
+    try:
+        # AWS requires different API calls for us-east-1 vs other regions
+        # For us-east-1, specifying LocationConstraint causes an error
+        if region == 'us-east-1':
+            s3_client.create_bucket(Bucket=bucket_name)
+        else:
+            s3_client.create_bucket(
+                Bucket=bucket_name,
+                CreateBucketConfiguration={'LocationConstraint': region}
+            )
+        
+        # Enable versioning
+        s3_client.put_bucket_versioning(
+            Bucket=bucket_name,
+            VersioningConfiguration={'Status': 'Enabled'}
+        )
+        
+        # Enable encryption
+        s3_client.put_bucket_encryption(
+            Bucket=bucket_name,
+            ServerSideEncryptionConfiguration={
+                'Rules': [
+                    {'ApplyServerSideEncryptionByDefault': {'SSEAlgorithm': 'AES256'}}
+                ]
+            }
+        )
+        
+        click.echo(f"S3 bucket {bucket_name} created successfully")
+    except ClientError as create_error:
+        click.echo(f"Error creating bucket: {create_error}", err=True)
+        sys.exit(1)
+
+
+def upload_templates_to_s3(bucket_name: str, region: str) -> None:
+    """Upload CloudFormation templates to S3 bucket"""
+    s3_client = boto3.client('s3', region_name=region)
+    
+    # Get the infrastructure directory using pathlib
+    infra_dir = Path(__file__).parent.parent / "infrastructure"
+    
+    # Define directories to process
+    directories = [
+        infra_dir,
+        infra_dir / "initial",
+        infra_dir / "template"
+    ]
+    
+    click.echo("Uploading CloudFormation templates to S3...")
+    
+    # Upload files from each directory
+    for directory in directories:
+        if directory.exists():
+            for file_path in directory.glob("*.yaml"):
+                # All templates go to the infrastructure/ prefix
+                s3_key = f"infrastructure/{file_path.name}"
+                
+                click.echo(f"Uploading {file_path} to s3://{bucket_name}/{s3_key}")
+                try:
+                    s3_client.upload_file(str(file_path), bucket_name, s3_key)
+                except ClientError as e:
+                    click.echo(f"Error uploading file: {e}", err=True)
+                    sys.exit(1)
+    
+    # Upload the dev-environment-template.yaml to templates/ prefix
+    dev_env_template = infra_dir / "template" / "dev-environment-template.yaml"
+    if dev_env_template.exists():
+        s3_key = "templates/dev-environment-template.yaml"
+        click.echo(f"Uploading {dev_env_template} to s3://{bucket_name}/{s3_key}")
+        try:
+            s3_client.upload_file(str(dev_env_template), bucket_name, s3_key)
+        except ClientError as e:
+            click.echo(f"Error uploading file: {e}", err=True)
+            sys.exit(1)
+    else:
+        click.echo(f"Warning: {dev_env_template} not found", err=True)
+    
+    click.echo(click.style("All templates uploaded successfully", fg="green"))
 
 
 @click.group()
@@ -112,7 +224,8 @@ def developer():
 
 @admin.command("deploy")
 @click.option("--region", help="AWS region to deploy to")
-def admin_deploy(region: Optional[str]):
+@click.option("--artifact-bucket-name", help="Name for the S3 bucket to store artifacts (will be suffixed with account ID)")
+def admin_deploy(region: Optional[str], artifact_bucket_name: Optional[str]):
     """Deploy the base infrastructure for development environments"""
     click.echo(click.style("=== Administrator Setup Deployment ===", fg="blue"))
     
@@ -125,42 +238,52 @@ def admin_deploy(region: Optional[str]):
     if not region:
         region = get_aws_region()
     
+    # Get AWS account ID
+    sts_client = boto3.client('sts', region_name=region)
+    account_id = sts_client.get_caller_identity()["Account"]
+    
+    # Set default artifact bucket name if not provided
+    if not artifact_bucket_name:
+        artifact_bucket_name = "agent-devenv-artifacts"
+    
+    # Create the full bucket name with account ID suffix
+    full_bucket_name = f"{artifact_bucket_name}-{account_id}"
+    
     click.echo(f"Deploying administrator setup to region: {region}")
     
+    # Check if S3 bucket exists, create if it doesn't
+    bucket_exists = check_s3_bucket_exists(full_bucket_name, region)
+    if bucket_exists:
+        click.echo(f"S3 bucket {full_bucket_name} already exists")
+    else:
+        create_s3_bucket(full_bucket_name, region)
+    
+    # Upload CloudFormation templates to S3
+    upload_templates_to_s3(full_bucket_name, region)
+    
     # Get the infrastructure directory
-    infra_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "infrastructure")
+    infra_dir = Path(__file__).parent.parent / "infrastructure"
     
-    # Deploy the main stack
-    main_stack_name = "DevEnvironment-Admin-Setup"
-    click.echo("Deploying main CloudFormation stack from initial directory...")
-    deploy_cloudformation_stack(
-        os.path.join(infra_dir, "initial", "00-admin-main.yaml"),
-        main_stack_name,
-        region
-    )
+    # Deploy the master deployment stack
+    master_stack_name = "AgentDevEnv-Infrastructure-Master"
+    click.echo("Deploying master CloudFormation stack...")
     
-    # Deploy the launch templates stack
-    launch_template_stack_name = "DevEnvironment-Launch-Templates"
-    click.echo("Deploying launch templates stack...")
+    # Use the deploy_cloudformation_stack function with parameters
     deploy_cloudformation_stack(
-        os.path.join(infra_dir, "template", "05-admin-launch-template.yaml"),
-        launch_template_stack_name,
-        region
-    )
-    
-    # Deploy the service catalog registration stack
-    service_catalog_stack_name = "DevEnvironment-Service-Catalog-Registration"
-    click.echo("Deploying service catalog registration stack...")
-    deploy_cloudformation_stack(
-        os.path.join(infra_dir, "template", "06-admin-register-launch-templates.yaml"),
-        service_catalog_stack_name,
-        region
+        str(infra_dir / "00-admin-deployment.yaml"),
+        master_stack_name,
+        region,
+        parameters={
+            'ArtifactBucketName': full_bucket_name
+        }
     )
     
     click.echo(click.style("Administrator setup complete!", fg="green"))
-    click.echo(f"Main stack: {main_stack_name}")
-    click.echo(f"Launch templates stack: {launch_template_stack_name}")
-    click.echo(f"Service catalog registration stack: {service_catalog_stack_name}")
+    click.echo(f"Master stack: {master_stack_name}")
+    click.echo(f"Artifact S3 bucket: {full_bucket_name}")
+    click.echo("")
+    click.echo(click.style("You can now launch development environments using:", fg="blue"))
+    click.echo("python -m application.cli developer launch [--region REGION] [--type standard|high|extra]")
 
 
 @developer.command("launch")
@@ -239,14 +362,17 @@ def developer_launch(region: Optional[str], env_type: Optional[str]):
             elif choice == "3":
                 env_type = "extra"
         
-        # Map environment type to product name
-        product_name_map = {
-            "standard": "Standard Development Environment",
-            "high": "High Performance Development Environment",
-            "extra": "Extra Performance Development Environment"
+        # Map environment type to instance type
+        instance_type_map = {
+            "standard": "t3.medium",
+            "high": "t3.large",
+            "extra": "t3.xlarge"
         }
         
-        product_name = product_name_map[env_type]
+        instance_type = instance_type_map[env_type]
+        
+        # Use the unified Development Environment product
+        product_name = "Development Environment"
         
         # Get product ID based on name
         product_id = None
@@ -273,28 +399,38 @@ def developer_launch(region: Optional[str], env_type: Optional[str]):
         # Get username for unique naming
         username = os.getlogin()
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        product_name_safe = product_name.replace(" ", "-").lower()
-        provisioned_product_name = f"{username}-{product_name_safe}-{timestamp}"
+        provisioned_product_name = f"{username}-dev-env-{timestamp}"
         
         click.echo(click.style("Launching development environment...", fg="blue"))
         click.echo(f"Product: {product_name}")
+        click.echo(f"Instance Type: {instance_type}")
         click.echo(f"Provisioned Product Name: {provisioned_product_name}")
         
-        # Launch the product
+        # Launch the product with parameters
         provision_response = sc_client.provision_product(
             ProductId=product_id,
             ProvisioningArtifactId=artifact_id,
-            ProvisionedProductName=provisioned_product_name
+            ProvisionedProductName=provisioned_product_name,
+            ProvisioningParameters=[
+                {
+                    'Key': 'InstanceType',
+                    'Value': instance_type
+                },
+                {
+                    'Key': 'UserName',
+                    'Value': username
+                }
+            ]
         )
         
         click.echo(click.style("Development environment launch initiated!", fg="green"))
         click.echo(f"Provisioned Product ID: {provision_response.get('RecordDetail', {}).get('ProvisionedProductId')}")
         click.echo("")
         click.echo(click.style("To check the status of your environment:", fg="yellow"))
-        click.echo(f"Run: onboarding developer status --name {provisioned_product_name}")
+        click.echo(f"Run: python -m application.cli developer status --name {provisioned_product_name}")
         click.echo("")
         click.echo(click.style("Once provisioning is complete, you can find your instance ID in the outputs.", fg="yellow"))
-        click.echo(f"Run: onboarding developer outputs --name {provisioned_product_name}")
+        click.echo(f"Run: python -m application.cli developer outputs --name {provisioned_product_name}")
         click.echo("")
         click.echo(click.style("To connect to your instance using Session Manager:", fg="blue"))
         click.echo("aws ssm start-session --target i-xxxxxxxxxxxxxxxxx")
@@ -420,7 +556,7 @@ def developer_list(region: Optional[str]):
             
             status_color = "green" if status == "AVAILABLE" else "yellow" if status == "UNDER_CHANGE" else "red"
             
-            click.echo(f"{name:<40} {click.style(status:<15, fg=status_color)} {product_type:<30} {created}")
+            click.echo(f"{name:<40} {click.style(f'{status:<15}', fg=status_color)} {product_type:<30} {created}")
     
     except ClientError as e:
         click.echo(f"Error: {e}", err=True)

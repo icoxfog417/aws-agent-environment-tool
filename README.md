@@ -54,49 +54,54 @@ The deployment process creates several CloudFormation stacks that set up the com
 
 ```mermaid
 flowchart TD
-    A[Admin Deploy Command] --> B[Main Stack]
-    A --> C[Launch Templates Stack]
-    A --> D[Service Catalog Registration]
+    A[Admin Deploy Command] --> B[Initial Infrastructure]
+    A --> C[Template Infrastructure]
     
-    B --> E[VPC]
-    B --> F[Subnets]
-    B --> G[Security Groups]
-    B --> H[IAM Roles]
+    B --> D[Main Admin Stack]
+    B --> E[Network Infrastructure]
+    B --> F[Service Catalog Setup]
+    B --> G[Patch Management]
+    B --> H[Monitoring Dashboard]
     
-    C --> I[EC2 Launch Templates]
-    C --> J[Instance Profiles]
+    C --> I[Launch Templates]
+    C --> J[Service Catalog Registration]
     
-    D --> K[Service Catalog Portfolio]
-    D --> L[Service Catalog Products]
+    I --> K[Standard Environment]
+    I --> L[High Performance Environment]
+    I --> M[Extra Performance Environment]
     
-    K --> M[Standard Environment]
-    K --> N[High Performance Environment]
-    K --> O[Extra Performance Environment]
-    
-    M --> P[t3.medium Instance]
-    N --> Q[t3.large Instance]
-    O --> R[t3.xlarge Instance]
+    K --> N[t3.medium Instance]
+    L --> O[t3.large Instance]
+    M --> P[t3.xlarge Instance]
 ```
 
-The deployment creates:
+The deployment creates the following stacks:
 
-1. **Main Stack (DevEnvironment-Admin-Setup)**
-   - VPC with public and private subnets
-   - Internet Gateway and NAT Gateway
-   - Security Groups for SSH and development access
-   - IAM Roles for EC2 instances with SSM access
+1. **Initial Infrastructure (`infrastructure/initial/`)**
+   - **Main Admin Stack (`00-admin-main.yaml`)**
+     - Core stack that orchestrates the deployment of all other stacks
+   - **Network Infrastructure (`01-admin-network-infrastructure.yaml`)**
+     - VPC with private subnets
+     - Security Groups for development access
+     - SSM VPC Endpoints for secure instance management
+   - **Service Catalog Setup (`02-admin-service-catalog-setup.yaml`)**
+     - Service Catalog Portfolio configuration
+     - Application Registry setup
+     - S3 Bucket for artifacts
+   - **Patch Management (`03-admin-patch-management.yaml`)**
+     - Systems Manager Patch Baseline
+   - **Monitoring Dashboard (`04-admin-monitoring-dashboard.yaml`)**
+     - CloudWatch dashboards for environment monitoring
+     - Alarms for idle instance detection
 
-2. **Launch Templates Stack (DevEnvironment-Launch-Templates)**
-   - EC2 Launch Templates for different instance types
-   - Instance Profiles with appropriate permissions
-   - User data scripts for environment setup
-
-3. **Service Catalog Registration (DevEnvironment-Service-Catalog-Registration)**
-   - Service Catalog Portfolio for development environments
-   - Products for different environment sizes:
-     - Standard: 4GB RAM, 2 vCPU (t3.medium)
-     - High Performance: 8GB RAM, 2 vCPU (t3.large)
-     - Extra Performance: 16GB RAM, 4 vCPU (t3.xlarge)
+2. **Template Infrastructure (`infrastructure/template/`)**
+   - **Launch Templates (`05-admin-launch-template.yaml`)**
+     - EC2 Launch Templates for different instance types
+   - **Service Catalog Registration (`06-admin-register-launch-templates.yaml`)**
+     - Products for different environment sizes:
+       - Standard: 4GB RAM, 2 vCPU (t3.medium)
+       - High Performance: 8GB RAM, 2 vCPU (t3.large)
+       - Extra Performance: 16GB RAM, 4 vCPU (t3.xlarge)
 
 ### How to Launch Environment and Connect Through VSCode
 

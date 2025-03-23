@@ -1,0 +1,10 @@
+[project]
+name = "onboarding"
+version = "0.1.0"
+description = "CLI tool for managing development environments"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.37.18",
+    "click>=8.1.8",
+]

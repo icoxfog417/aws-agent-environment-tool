@@ -1,174 +1,160 @@
-# Development Environment Onboarding
+# AWS Agent Environment Tool
 
-This project contains CloudFormation templates and scripts for setting up development environments. The project is organized into two main components with numbered templates to indicate deployment order.
+A command-line tool for setting up and managing cloud environments (EC2 instances) for agents that can connect through VSCode.
 
-## 1. Administrator Setup (`/admin-setup`)
+## Purpose
 
-Contains CloudFormation templates and scripts for administrators to set up the foundational infrastructure:
+This tool provides a streamlined way to:
 
-- **00-admin-main.yaml**: Main template that integrates all administrator components
-- **01-admin-network-infrastructure.yaml**: VPC, subnets, and VPC endpoints
-- **02-admin-app-manager-setup.yaml**: Application Manager configuration
-- **03-admin-patch-management.yaml**: Patch management for development instances
-- **04-admin-monitoring-dashboard.yaml**: CloudWatch dashboard for monitoring
+1. Set up the necessary AWS infrastructure for agent working environments
+2. Launch and manage EC2 instances configured for agents to work efficiently
+3. Connect to these environments through VSCode
+4. Manage the lifecycle of agent environments
 
-The numbering indicates the deployment order and dependencies between resources.
+## Folder Structure
 
-### Deployment Instructions for Administrators
-
-1. Navigate to the admin-setup directory:
-   ```
-   cd admin-setup
-   ```
-
-2. Run the deployment script:
-   ```
-   ./admin-deploy.sh
-   ```
-
-## 2. Developer Environment Setup (`/developer-setup`)
-
-Contains CloudFormation templates and scripts for developers to set up their development environments:
-
-- **00-developer-main.yaml**: Main template for developer environment
-- **01-developer-ec2-instance.yaml**: EC2 instance configuration for development
-
-### Deployment Instructions for Developers
-
-1. Navigate to the developer-setup directory:
-   ```
-   cd developer-setup
-   ```
-
-2. Run the deployment script:
-   ```
-   ./developer-deploy.sh
-   ```
-
-3. Select your preferred instance specification:
-   - Normal (4 GB RAM, 2 vCPU - t3.medium)
-   - High (8 GB RAM, 2 vCPU - t3.large)
-   - Extra (16 GB RAM, 4 vCPU - t3.xlarge)
-
-4. Wait for the deployment to complete. The script will output your instance ID and connection instructions.
-
-## Connecting to Your Development Environment
-
-### Using AWS Session Manager (Recommended)
-
-Connect to your instance using AWS Session Manager:
-
-```bash
-aws ssm start-session --target i-xxxxxxxxxxxxxxxxx
+```
+onboarding/
+├── application/     # Python CLI application code
+├── infrastructure/  # CloudFormation templates for AWS infrastructure
+│   ├── initial/     # Base infrastructure templates
+│   └── template/    # Launch templates and service catalog configurations
+├── .venv/           # Python virtual environment (created by uv)
+├── pyproject.toml   # Python project configuration
+└── README.md        # This file
 ```
 
-Replace `i-xxxxxxxxxxxxxxxxx` with your instance ID from the deployment output.
+## How to Use the Tool
 
-### Using SSH with VS Code
+### Prerequisites
 
-1. Install the VS Code Remote - SSH extension.
+- AWS CLI configured with appropriate credentials
+- Python 3.12 or higher
+- uv package manager
 
-2. Add the following to your SSH config file (`~/.ssh/config`):
-   ```
-   Host dev-environment
-     HostName i-xxxxxxxxxxxxxxxxx
-     User ubuntu
-     ProxyCommand sh -c "aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters 'portNumber=%p'"
-   ```
+### How to Initialize the Environment
 
-3. Connect from VS Code:
-   - Open the Command Palette (Ctrl+Shift+P)
-   - Select "Remote-SSH: Connect to Host..."
-   - Choose "dev-environment"
+As an administrator, you need to set up the base infrastructure before agents can launch their working environments:
 
-## Development Environment Features
-
-Your development environment comes pre-installed with:
-
-- Ubuntu 24.04 LTS
-- Docker
-- Node.js 22 (via latest nvm)
-- AWS CDK
-- AWS CLI v2
-- Git and basic development tools
-
-## Using AWS CDK
-
-The instance has AWS CDK pre-installed and is configured with the necessary permissions for CDK deployments:
+1. Install the required dependencies:
 
 ```bash
-# Initialize a new CDK project
-mkdir my-cdk-app && cd my-cdk-app
-cdk init app --language typescript
-
-# Deploy a CDK stack
-cdk deploy
+uv add boto3 click
 ```
 
-## Updating Your Environment
-
-To change your instance specification (e.g., from Normal to High), simply run the deployment script again and select a different specification:
+2. Deploy the infrastructure:
 
 ```bash
-./developer-deploy.sh
+python -m application.cli admin deploy [--region REGION]
 ```
 
-## Prerequisites
+#### Infrastructure Deployment Details
 
-- AWS CLI installed and configured
-- AWS SSO login credentials
-- For developers: The administrator must have completed the admin setup first
+The deployment process creates several CloudFormation stacks that set up the complete environment:
 
-## Architecture
+```mermaid
+flowchart TD
+    A[Admin Deploy Command] --> B[Main Stack]
+    A --> C[Launch Templates Stack]
+    A --> D[Service Catalog Registration]
+    
+    B --> E[VPC]
+    B --> F[Subnets]
+    B --> G[Security Groups]
+    B --> H[IAM Roles]
+    
+    C --> I[EC2 Launch Templates]
+    C --> J[Instance Profiles]
+    
+    D --> K[Service Catalog Portfolio]
+    D --> L[Service Catalog Products]
+    
+    K --> M[Standard Environment]
+    K --> N[High Performance Environment]
+    K --> O[Extra Performance Environment]
+    
+    M --> P[t3.medium Instance]
+    N --> Q[t3.large Instance]
+    O --> R[t3.xlarge Instance]
+```
 
-The development environment consists of:
+The deployment creates:
 
-1. A secure VPC with private subnets (01-admin-network-infrastructure.yaml)
-2. Application Manager configuration (02-admin-app-manager-setup.yaml)
-3. Patch management (03-admin-patch-management.yaml)
-4. Monitoring dashboard (04-admin-monitoring-dashboard.yaml)
-5. Developer-specific EC2 instances with Ubuntu 24.04, Node.js 22, and AWS CDK (01-developer-ec2-instance.yaml)
+1. **Main Stack (DevEnvironment-Admin-Setup)**
+   - VPC with public and private subnets
+   - Internet Gateway and NAT Gateway
+   - Security Groups for SSH and development access
+   - IAM Roles for EC2 instances with SSM access
 
-## Troubleshooting
+2. **Launch Templates Stack (DevEnvironment-Launch-Templates)**
+   - EC2 Launch Templates for different instance types
+   - Instance Profiles with appropriate permissions
+   - User data scripts for environment setup
 
-### Connection Issues
+3. **Service Catalog Registration (DevEnvironment-Service-Catalog-Registration)**
+   - Service Catalog Portfolio for development environments
+   - Products for different environment sizes:
+     - Standard: 4GB RAM, 2 vCPU (t3.medium)
+     - High Performance: 8GB RAM, 2 vCPU (t3.large)
+     - Extra Performance: 16GB RAM, 4 vCPU (t3.xlarge)
 
-If you cannot connect to your instance:
+### How to Launch Environment and Connect Through VSCode
 
-1. Verify your AWS SSO session is active:
-   ```bash
-   aws sts get-caller-identity
-   ```
+As an agent, you can launch your working environment:
 
-2. Check if your instance is running:
-   ```bash
-   aws ec2 describe-instances --instance-ids i-xxxxxxxxxxxxxxxxx --query 'Reservations[0].Instances[0].State.Name'
-   ```
-
-3. Ensure Session Manager plugin is installed:
-   ```bash
-   aws ssm start-session --help
-   ```
-
-### Deployment Failures
-
-If deployment fails:
-
-1. Check CloudFormation events:
-   ```bash
-   aws cloudformation describe-stack-events --stack-name DevEnv-YourName
-   ```
-
-2. Verify your IAM permissions are sufficient for creating the resources.
-
-## Cleaning Up
-
-To delete your development environment:
+1. Launch a new environment:
 
 ```bash
-aws cloudformation delete-stack --stack-name DevEnv-YourName
+python -m application.cli developer launch [--region REGION] [--type standard|high|extra]
 ```
 
-## Support
+2. Check the status of your environment:
 
-For issues or questions, please contact the administrator team.
+```bash
+python -m application.cli developer status --name YOUR_ENVIRONMENT_NAME
+```
+
+3. Once the environment is ready, get the connection details:
+
+```bash
+python -m application.cli developer outputs --name YOUR_ENVIRONMENT_NAME
+```
+
+4. Connect to your environment through VSCode:
+   - Install the "Remote - SSH" extension in VSCode
+   - Use the connection details from the previous step to configure a new SSH host
+   - Connect to the host through the Remote Explorer in VSCode
+
+5. When you're done, terminate your environment:
+
+```bash
+python -m application.cli developer terminate --name YOUR_ENVIRONMENT_NAME
+```
+
+### Additional Commands
+
+List all your provisioned environments:
+
+```bash
+python -m application.cli developer list [--region REGION]
+```
+
+## How to Contribute
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes
+4. Commit your changes (`git commit -m 'Add some amazing feature'`)
+5. Push to the branch (`git push origin feature/amazing-feature`)
+6. Open a Pull Request
+
+### Development Guidelines
+
+- Use type hints for all Python code
+- Follow PEP 8 style guidelines
+- Write unit tests for new functionality
+- Update documentation as needed
+
+## License
+
+This project is licensed under the terms of the license included in the [LICENSE](LICENSE) file.

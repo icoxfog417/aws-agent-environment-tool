@@ -1,0 +1,274 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Development Environment Launch Templates'
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: DevelopmentEnv
+    Description: Project tag value for all resources
+  
+  ManagedByTag:
+    Type: String
+    Default: Administrator
+    Description: ManagedBy tag value for all resources
+    
+  UserDataScript:
+    Type: String
+    Description: Common UserData script for all launch templates
+    Default: |
+      #!/bin/bash
+      # Update package lists
+      apt-get update
+      apt-get upgrade -y
+      
+      # Install basic development tools
+      apt-get install -y git curl wget unzip build-essential
+      
+      # Install Docker
+      apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+      curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+      add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+      apt-get update
+      apt-get install -y docker-ce docker-ce-cli containerd.io
+      systemctl enable docker
+      systemctl start docker
+      
+      # Install latest nvm
+      export NVM_DIR="/usr/local/nvm"
+      mkdir -p $NVM_DIR
+      # Get the latest nvm version dynamically
+      LATEST_NVM=$(curl -s https://api.github.com/repos/nvm-sh/nvm/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+      curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/$LATEST_NVM/install.sh | bash
+      
+      # Add nvm to system-wide profile
+      echo 'export NVM_DIR="/usr/local/nvm"' > /etc/profile.d/nvm.sh
+      echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> /etc/profile.d/nvm.sh
+      echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"' >> /etc/profile.d/nvm.sh
+      
+      # Load nvm and install Node.js 22
+      export NVM_DIR="/usr/local/nvm"
+      [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+      nvm install 22
+      nvm alias default 22
+      nvm use default
+      
+      # Make node and npm available to all users
+      ln -sf $NVM_DIR/versions/node/v22*/bin/node /usr/local/bin/node
+      ln -sf $NVM_DIR/versions/node/v22*/bin/npm /usr/local/bin/npm
+      ln -sf $NVM_DIR/versions/node/v22*/bin/npx /usr/local/bin/npx
+      
+      # Install AWS CDK
+      npm install -g aws-cdk
+      
+      # Install AWS CLI v2
+      curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+      unzip awscliv2.zip
+      ./aws/install
+      
+      # Configure AWS CLI to use instance profile credentials
+      mkdir -p /home/ubuntu/.aws
+      echo "[default]" > /home/ubuntu/.aws/config
+      echo "region = ${AWS::Region}" >> /home/ubuntu/.aws/config
+      echo "output = json" >> /home/ubuntu/.aws/config
+      chown -R ubuntu:ubuntu /home/ubuntu/.aws
+      
+      # Install Amazon Q Developer
+      curl --proto '=https' --tlsv1.2 -sSf https://desktop-release.q.us-east-1.amazonaws.com/latest/amazon-q.deb -o amazon-q.deb
+      apt install -y ./amazon-q.deb
+
+      # Create a welcome message
+      NODE_VERSION=$(node -v)
+      echo "Welcome to your CDK development environment!" > /etc/motd
+      echo "Node.js ${NODE_VERSION} (via latest nvm) and AWS CDK are pre-installed." >> /etc/motd
+      echo "You can start developing and deploying CDK applications right away." >> /etc/motd
+      
+      # Register with Systems Manager
+      aws ssm register-default-patch-baseline --region ${AWS::Region}
+
+Resources:
+  DevInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/PowerUserAccess  # Provides permissions for CDK deployments
+      Path: /
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+  
+  DevInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref DevInstanceRole
+  
+  DevSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for development instances
+      VpcId: 
+        Fn::ImportValue: DevEnvironment-VpcId
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+  # Standard Development Environment Launch Template (t3.medium)
+  StandardDevLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${ProjectTag}-Standard-Dev-Environment
+      VersionDescription: Standard development environment with 4GB RAM, 2 vCPU
+      LaunchTemplateData:
+        ImageId: 'ami-04b4f1a9cf54c11d0'  # Ubuntu 24.04 LTS (x86_64)
+        InstanceType: t3.medium
+        IamInstanceProfile:
+          Name: !Ref DevInstanceProfile
+        SecurityGroupIds:
+          - !Ref DevSecurityGroup
+        UserData:
+          Fn::Base64: !Ref UserDataScript
+        MetadataOptions:
+          HttpTokens: required  # Enforce IMDSv2 for improved security
+          HttpEndpoint: enabled
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 50
+              VolumeType: gp3
+              Encrypted: true
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub ${ProjectTag}-Standard
+              - Key: Project
+                Value: !Ref ProjectTag
+              - Key: ManagedBy
+                Value: !Ref ManagedByTag
+              - Key: Environment
+                Value: Development
+              - Key: InstanceType
+                Value: Standard
+
+  # High Performance Development Environment Launch Template (t3.large)
+  HighDevLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${ProjectTag}-High-Dev-Environment
+      VersionDescription: High performance development environment with 8GB RAM, 2 vCPU
+      LaunchTemplateData:
+        ImageId: 'ami-04b4f1a9cf54c11d0'  # Ubuntu 24.04 LTS (x86_64)
+        InstanceType: t3.large
+        IamInstanceProfile:
+          Name: !Ref DevInstanceProfile
+        SecurityGroupIds:
+          - !Ref DevSecurityGroup
+        UserData:
+          Fn::Base64: !Ref UserDataScript
+        MetadataOptions:
+          HttpTokens: required  # Enforce IMDSv2 for improved security
+          HttpEndpoint: enabled
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 50
+              VolumeType: gp3
+              Encrypted: true
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub ${ProjectTag}-High
+              - Key: Project
+                Value: !Ref ProjectTag
+              - Key: ManagedBy
+                Value: !Ref ManagedByTag
+              - Key: Environment
+                Value: Development
+              - Key: InstanceType
+                Value: High
+
+  # Extra Performance Development Environment Launch Template (t3.xlarge)
+  ExtraDevLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${ProjectTag}-Extra-Dev-Environment
+      VersionDescription: Extra performance development environment with 16GB RAM, 4 vCPU
+      LaunchTemplateData:
+        ImageId: 'ami-04b4f1a9cf54c11d0'  # Ubuntu 24.04 LTS (x86_64)
+        InstanceType: t3.xlarge
+        IamInstanceProfile:
+          Name: !Ref DevInstanceProfile
+        SecurityGroupIds:
+          - !Ref DevSecurityGroup
+        UserData:
+          Fn::Base64: !Ref UserDataScript
+        MetadataOptions:
+          HttpTokens: required  # Enforce IMDSv2 for improved security
+          HttpEndpoint: enabled
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 100
+              VolumeType: gp3
+              Encrypted: true
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub ${ProjectTag}-Extra
+              - Key: Project
+                Value: !Ref ProjectTag
+              - Key: ManagedBy
+                Value: !Ref ManagedByTag
+              - Key: Environment
+                Value: Development
+              - Key: InstanceType
+                Value: Extra
+
+Outputs:
+  StandardDevLaunchTemplateId:
+    Description: ID of the Standard Development Environment Launch Template
+    Value: !Ref StandardDevLaunchTemplate
+    Export:
+      Name: !Sub ${AWS::StackName}-StandardDevLaunchTemplateId
+  
+  HighDevLaunchTemplateId:
+    Description: ID of the High Performance Development Environment Launch Template
+    Value: !Ref HighDevLaunchTemplate
+    Export:
+      Name: !Sub ${AWS::StackName}-HighDevLaunchTemplateId
+  
+  ExtraDevLaunchTemplateId:
+    Description: ID of the Extra Performance Development Environment Launch Template
+    Value: !Ref ExtraDevLaunchTemplate
+    Export:
+      Name: !Sub ${AWS::StackName}-ExtraDevLaunchTemplateId
+  
+  DevInstanceProfileArn:
+    Description: ARN of the Development Instance Profile
+    Value: !GetAtt DevInstanceProfile.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-DevInstanceProfileArn
+  
+  DevSecurityGroupId:
+    Description: ID of the Development Security Group
+    Value: !Ref DevSecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-DevSecurityGroupId

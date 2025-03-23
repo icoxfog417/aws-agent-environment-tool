@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Application Manager and Service Catalog Configuration for Development Environment'
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: DevelopmentEnv
+    Description: Project tag value for all resources
+  
+  ManagedByTag:
+    Type: String
+    Default: Administrator
+    Description: ManagedBy tag value for all resources
+    
+  PortfolioName:
+    Type: String
+    Default: Development Environment Portfolio
+    Description: Name of the Service Catalog portfolio
+  
+  PortfolioDescription:
+    Type: String
+    Default: Portfolio containing development environment templates
+    Description: Description of the Service Catalog portfolio
+  
+  PortfolioOwner:
+    Type: String
+    Default: IT Administrator
+    Description: Owner of the Service Catalog portfolio
+    
+  ArtifactBucketName:
+    Type: String
+    Default: dev-environment-artifacts
+    Description: Name of the S3 bucket for storing artifacts
+
+Resources:
+  # Application Manager Configuration
+  DevEnvironmentApplication:
+    Type: AWS::ServiceCatalogAppRegistry::Application
+    Properties:
+      Name: DevEnvironment
+      Description: Development Environment for Team
+      Tags:
+        Environment: Development
+        Project: !Ref ProjectTag
+        ManagedBy: !Ref ManagedByTag
+
+  # Create a resource group for the application
+  DevEnvironmentResourceGroup:
+    Type: AWS::ResourceGroups::Group
+    Properties:
+      Name: DevEnvironmentResourceGroup
+      Description: Resource group for Development Environment
+      ResourceQuery:
+        Type: TAG_FILTERS_1_0
+        Query: 
+          ResourceTypeFilters:
+            - "AWS::AllSupported"
+          TagFilters:
+            - Key: Project
+              Values:
+                - !Ref ProjectTag
+            - Key: ManagedBy
+              Values:
+                - !Ref ManagedByTag
+      Tags:
+        Project: !Ref ProjectTag
+        ManagedBy: !Ref ManagedByTag
+        
+  # S3 Bucket for storing artifacts (templates, etc.)
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ArtifactBucketName}-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      # Server-side encryption for internal bucket security
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+          
+  # Service Catalog Portfolio
+  DevEnvironmentPortfolio:
+    Type: AWS::ServiceCatalog::Portfolio
+    Properties:
+      DisplayName: !Ref PortfolioName
+      Description: !Ref PortfolioDescription
+      ProviderName: !Ref PortfolioOwner
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+  # Minimal Launch Role for Service Catalog Products
+  ServiceCatalogLaunchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: servicecatalog.amazonaws.com
+            Action: sts:AssumeRole
+      # Minimal permissions needed for launching EC2 instances
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/PowerUserAccess
+      Path: /
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+Outputs:
+  ApplicationId:
+    Description: Application ID for DevEnvironment
+    Value: !GetAtt DevEnvironmentApplication.Id
+    Export:
+      Name: DevEnvironment-ApplicationId
+      
+  PortfolioId:
+    Description: ID of the Service Catalog Portfolio
+    Value: !Ref DevEnvironmentPortfolio
+    Export:
+      Name: DevEnvironment-PortfolioId
+      
+  PortfolioOwner:
+    Description: Owner of the Service Catalog Portfolio
+    Value: !Ref PortfolioOwner
+    Export:
+      Name: DevEnvironment-PortfolioOwner
+      
+  ServiceCatalogLaunchRoleArn:
+    Description: ARN of the Service Catalog Launch Role
+    Value: !GetAtt ServiceCatalogLaunchRole.Arn
+    Export:
+      Name: DevEnvironment-ServiceCatalogLaunchRoleArn
+      
+  ArtifactBucketName:
+    Description: Name of the S3 bucket for storing artifacts
+    Value: !Ref ArtifactBucket
+    Export:
+      Name: DevEnvironment-ArtifactBucketName

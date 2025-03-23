@@ -1,0 +1,130 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Development Environment Monitoring Dashboard'
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: DevelopmentEnv
+    Description: Project tag value for all resources
+  
+  ManagedByTag:
+    Type: String
+    Default: Administrator
+    Description: ManagedBy tag value for all resources
+
+Resources:
+  # Enhanced dashboard showing instance count by InstanceType
+  DevEnvironmentDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: DevEnvironmentDashboard
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 24,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/EC2", "CPUUtilization", "tag:Project", "${ProjectTag}", { "stat": "SampleCount", "label": "Total Running Instances" } ],
+                  [ "AWS/EC2", "CPUUtilization", "tag:Project", "${ProjectTag}", "tag:InstanceType", "Standard", { "stat": "SampleCount", "label": "Standard Instances (t3.medium)" } ],
+                  [ "AWS/EC2", "CPUUtilization", "tag:Project", "${ProjectTag}", "tag:InstanceType", "High", { "stat": "SampleCount", "label": "High Performance Instances (t3.large)" } ],
+                  [ "AWS/EC2", "CPUUtilization", "tag:Project", "${ProjectTag}", "tag:InstanceType", "Extra", { "stat": "SampleCount", "label": "Extra Performance Instances (t3.xlarge)" } ]
+                ],
+                "view": "timeSeries",
+                "region": "${AWS::Region}",
+                "title": "Running Instances by Type",
+                "period": 300,
+                "yAxis": {
+                  "left": {
+                    "min": 0
+                  }
+                }
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/EC2", "CPUUtilization", "tag:Project", "${ProjectTag}", "tag:InstanceType", "Standard", { "stat": "Average", "label": "Standard CPU Utilization" } ],
+                  [ "AWS/EC2", "CPUUtilization", "tag:Project", "${ProjectTag}", "tag:InstanceType", "High", { "stat": "Average", "label": "High Performance CPU Utilization" } ],
+                  [ "AWS/EC2", "CPUUtilization", "tag:Project", "${ProjectTag}", "tag:InstanceType", "Extra", { "stat": "Average", "label": "Extra Performance CPU Utilization" } ]
+                ],
+                "view": "timeSeries",
+                "region": "${AWS::Region}",
+                "title": "Average CPU Utilization by Instance Type",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/EC2", "NetworkIn", "tag:Project", "${ProjectTag}", "tag:InstanceType", "Standard", { "stat": "Average", "label": "Standard Network In" } ],
+                  [ "AWS/EC2", "NetworkIn", "tag:Project", "${ProjectTag}", "tag:InstanceType", "High", { "stat": "Average", "label": "High Performance Network In" } ],
+                  [ "AWS/EC2", "NetworkIn", "tag:Project", "${ProjectTag}", "tag:InstanceType", "Extra", { "stat": "Average", "label": "Extra Performance Network In" } ]
+                ],
+                "view": "timeSeries",
+                "region": "${AWS::Region}",
+                "title": "Average Network In by Instance Type",
+                "period": 300
+              }
+            },
+            {
+              "type": "text",
+              "x": 0,
+              "y": 12,
+              "width": 24,
+              "height": 3,
+              "properties": {
+                "markdown": "# Development Environment Cost Optimization\n\nMonitor the number of running instances by type to optimize costs. Standard instances (t3.medium) cost less than High (t3.large) and Extra (t3.xlarge) instances. Consider upgrading or downgrading instances based on utilization patterns."
+              }
+            }
+          ]
+        }
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+  # Create a single CloudWatch alarm for idle instances
+  IdleInstancesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${ProjectTag}-IdleInstancesAlarm"
+      AlarmDescription: "Alarm when instances have low CPU utilization for extended periods"
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Dimensions:
+        - Name: tag:Project
+          Value: !Ref ProjectTag
+      Period: 3600  # 1 hour
+      EvaluationPeriods: 24  # Check for 24 consecutive periods
+      Threshold: 5.0  # 5% CPU utilization
+      ComparisonOperator: LessThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+Outputs:
+  DashboardURL:
+    Description: URL for the Development Environment Dashboard
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${DevEnvironmentDashboard}"
+    Export:
+      Name: DevEnvironment-DashboardURL

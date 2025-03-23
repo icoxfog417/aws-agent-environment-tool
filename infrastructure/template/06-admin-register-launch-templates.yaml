@@ -1,0 +1,137 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Register Development Environment Launch Templates to AWS Service Catalog'
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: DevelopmentEnv
+    Description: Project tag value for all resources
+  
+  ManagedByTag:
+    Type: String
+    Default: Administrator
+    Description: ManagedBy tag value for all resources
+
+Resources:
+  # Standard Development Environment Product
+  StandardDevProduct:
+    Type: AWS::ServiceCatalog::CloudFormationProduct
+    Properties:
+      Name: Standard Development Environment
+      Description: Development environment with 4GB RAM, 2 vCPU (t3.medium)
+      Owner: !ImportValue DevEnvironment-PortfolioOwner
+      ProvisioningArtifactParameters:
+        - Name: v1.0
+          Description: Initial version
+          Info:
+            LoadTemplateFromURL: !Sub 
+              - 'https://${ArtifactBucket}.s3.${AWS::Region}.amazonaws.com/templates/standard-dev-template.yaml'
+              - ArtifactBucket: !ImportValue DevEnvironment-ArtifactBucketName
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+  # High Performance Development Environment Product
+  HighDevProduct:
+    Type: AWS::ServiceCatalog::CloudFormationProduct
+    Properties:
+      Name: High Performance Development Environment
+      Description: Development environment with 8GB RAM, 2 vCPU (t3.large)
+      Owner: !ImportValue DevEnvironment-PortfolioOwner
+      ProvisioningArtifactParameters:
+        - Name: v1.0
+          Description: Initial version
+          Info:
+            LoadTemplateFromURL: !Sub 
+              - 'https://${ArtifactBucket}.s3.${AWS::Region}.amazonaws.com/templates/high-dev-template.yaml'
+              - ArtifactBucket: !ImportValue DevEnvironment-ArtifactBucketName
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+  # Extra Performance Development Environment Product
+  ExtraDevProduct:
+    Type: AWS::ServiceCatalog::CloudFormationProduct
+    Properties:
+      Name: Extra Performance Development Environment
+      Description: Development environment with 16GB RAM, 4 vCPU (t3.xlarge)
+      Owner: !ImportValue DevEnvironment-PortfolioOwner
+      ProvisioningArtifactParameters:
+        - Name: v1.0
+          Description: Initial version
+          Info:
+            LoadTemplateFromURL: !Sub 
+              - 'https://${ArtifactBucket}.s3.${AWS::Region}.amazonaws.com/templates/extra-dev-template.yaml'
+              - ArtifactBucket: !ImportValue DevEnvironment-ArtifactBucketName
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+  # Associate Products with Portfolio
+  StandardDevProductAssociation:
+    Type: AWS::ServiceCatalog::PortfolioProductAssociation
+    Properties:
+      PortfolioId: !ImportValue DevEnvironment-PortfolioId
+      ProductId: !Ref StandardDevProduct
+
+  HighDevProductAssociation:
+    Type: AWS::ServiceCatalog::PortfolioProductAssociation
+    Properties:
+      PortfolioId: !ImportValue DevEnvironment-PortfolioId
+      ProductId: !Ref HighDevProduct
+
+  ExtraDevProductAssociation:
+    Type: AWS::ServiceCatalog::PortfolioProductAssociation
+    Properties:
+      PortfolioId: !ImportValue DevEnvironment-PortfolioId
+      ProductId: !Ref ExtraDevProduct
+
+  # Associate Launch Role with Portfolio
+  LaunchRoleConstraint:
+    Type: AWS::ServiceCatalog::LaunchRoleConstraint
+    Properties:
+      PortfolioId: !ImportValue DevEnvironment-PortfolioId
+      ProductId: !Ref StandardDevProduct
+      RoleArn: !ImportValue DevEnvironment-ServiceCatalogLaunchRoleArn
+      Description: Launch role constraint for Standard Development Environment
+
+  HighDevLaunchRoleConstraint:
+    Type: AWS::ServiceCatalog::LaunchRoleConstraint
+    Properties:
+      PortfolioId: !ImportValue DevEnvironment-PortfolioId
+      ProductId: !Ref HighDevProduct
+      RoleArn: !ImportValue DevEnvironment-ServiceCatalogLaunchRoleArn
+      Description: Launch role constraint for High Performance Development Environment
+
+  ExtraDevLaunchRoleConstraint:
+    Type: AWS::ServiceCatalog::LaunchRoleConstraint
+    Properties:
+      PortfolioId: !ImportValue DevEnvironment-PortfolioId
+      ProductId: !Ref ExtraDevProduct
+      RoleArn: !ImportValue DevEnvironment-ServiceCatalogLaunchRoleArn
+      Description: Launch role constraint for Extra Performance Development Environment
+
+Outputs:
+  StandardDevProductId:
+    Description: ID of the Standard Development Environment Product
+    Value: !Ref StandardDevProduct
+    Export:
+      Name: !Sub ${AWS::StackName}-StandardDevProductId
+  
+  HighDevProductId:
+    Description: ID of the High Performance Development Environment Product
+    Value: !Ref HighDevProduct
+    Export:
+      Name: !Sub ${AWS::StackName}-HighDevProductId
+  
+  ExtraDevProductId:
+    Description: ID of the Extra Performance Development Environment Product
+    Value: !Ref ExtraDevProduct
+    Export:
+      Name: !Sub ${AWS::StackName}-ExtraDevProductId

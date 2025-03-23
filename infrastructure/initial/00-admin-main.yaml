@@ -12,6 +12,26 @@ Parameters:
     Default: Administrator
     Description: ManagedBy tag value for all resources
 
+  PortfolioName:
+    Type: String
+    Default: Development Environment Portfolio
+    Description: Name of the Service Catalog portfolio
+  
+  PortfolioDescription:
+    Type: String
+    Default: Portfolio containing development environment templates
+    Description: Description of the Service Catalog portfolio
+  
+  PortfolioOwner:
+    Type: String
+    Default: IT Administrator
+    Description: Owner of the Service Catalog portfolio
+    
+  ArtifactBucketName:
+    Type: String
+    Default: dev-environment-artifacts
+    Description: Name of the S3 bucket for storing artifacts
+
 Resources:
   NetworkInfrastructureStack:
     Type: AWS::CloudFormation::Stack
@@ -22,28 +42,32 @@ Resources:
         ProjectTag: !Ref ProjectTag
         ManagedByTag: !Ref ManagedByTag
       Tags:
-        - Key: Component
-          Value: NetworkInfrastructure
         - Key: Project
           Value: !Ref ProjectTag
         - Key: ManagedBy
           Value: !Ref ManagedByTag
+        - Key: Component
+          Value: NetworkInfrastructure
 
-  AppManagerSetupStack:
+  ServiceCatalogStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: ./02-admin-app-manager-setup.yaml
+      TemplateURL: ./02-admin-service-catalog-setup.yaml
       TimeoutInMinutes: 20
       Parameters:
         ProjectTag: !Ref ProjectTag
         ManagedByTag: !Ref ManagedByTag
+        PortfolioName: !Ref PortfolioName
+        PortfolioDescription: !Ref PortfolioDescription
+        PortfolioOwner: !Ref PortfolioOwner
+        ArtifactBucketName: !Ref ArtifactBucketName
       Tags:
-        - Key: Component
-          Value: AppManager
         - Key: Project
           Value: !Ref ProjectTag
         - Key: ManagedBy
           Value: !Ref ManagedByTag
+        - Key: Component
+          Value: ServiceCatalog
     DependsOn: NetworkInfrastructureStack
 
   PatchManagementStack:
@@ -55,12 +79,12 @@ Resources:
         ProjectTag: !Ref ProjectTag
         ManagedByTag: !Ref ManagedByTag
       Tags:
-        - Key: Component
-          Value: PatchManagement
         - Key: Project
           Value: !Ref ProjectTag
         - Key: ManagedBy
           Value: !Ref ManagedByTag
+        - Key: Component
+          Value: PatchManagement
     DependsOn: NetworkInfrastructureStack
 
   MonitoringDashboardStack:
@@ -72,15 +96,16 @@ Resources:
         ProjectTag: !Ref ProjectTag
         ManagedByTag: !Ref ManagedByTag
       Tags:
-        - Key: Component
-          Value: MonitoringDashboard
         - Key: Project
           Value: !Ref ProjectTag
         - Key: ManagedBy
           Value: !Ref ManagedByTag
+        - Key: Component
+          Value: MonitoringDashboard
     DependsOn: NetworkInfrastructureStack
 
 Outputs:
+  # Network Infrastructure Outputs
   VpcId:
     Description: VPC ID
     Value: !GetAtt NetworkInfrastructureStack.Outputs.VpcId
@@ -99,8 +124,35 @@ Outputs:
     Export:
       Name: DevEnvironment-PrivateSubnet2Id
   
-  ApplicationId:
-    Description: Application ID for DevEnvironment
-    Value: !GetAtt AppManagerSetupStack.Outputs.ApplicationId
+  # Service Catalog Outputs
+  PortfolioId:
+    Description: Service Catalog Portfolio ID
+    Value: !GetAtt ServiceCatalogStack.Outputs.PortfolioId
     Export:
-      Name: DevEnvironment-ApplicationId
+      Name: DevEnvironment-PortfolioId
+  
+  ArtifactBucketArn:
+    Description: Artifact S3 Bucket ARN
+    Value: !GetAtt ServiceCatalogStack.Outputs.ArtifactBucketArn
+    Export:
+      Name: DevEnvironment-ArtifactBucketArn
+  
+  # Patch Management Outputs
+  PatchBaselineId:
+    Description: Patch Baseline ID
+    Value: !GetAtt PatchManagementStack.Outputs.PatchBaselineId
+    Export:
+      Name: DevEnvironment-PatchBaselineId
+  
+  MaintenanceWindowId:
+    Description: Maintenance Window ID
+    Value: !GetAtt PatchManagementStack.Outputs.MaintenanceWindowId
+    Export:
+      Name: DevEnvironment-MaintenanceWindowId
+  
+  # Monitoring Dashboard Outputs
+  DashboardName:
+    Description: CloudWatch Dashboard Name
+    Value: !GetAtt MonitoringDashboardStack.Outputs.DashboardName
+    Export:
+      Name: DevEnvironment-DashboardName

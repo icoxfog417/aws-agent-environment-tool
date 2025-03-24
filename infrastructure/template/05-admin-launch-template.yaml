@@ -47,6 +47,12 @@ Resources:
       GroupDescription: Security group for development instances
       VpcId: 
         Fn::ImportValue: AgentDevEnv-VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic for package installation and updates
       Tags:
         - Key: Project
           Value: !Ref ProjectTag

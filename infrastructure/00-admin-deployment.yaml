@@ -120,21 +120,4 @@ Resources:
         - Key: ManagedBy
           Value: !Ref ManagedByTag
 
-Outputs:
-  PortfolioId:
-    Description: ID of the Service Catalog Portfolio
-    Value: !GetAtt ServiceCatalogSetupStack.Outputs.PortfolioId
-    Export:
-      Name: AgentDevEnv-PortfolioId-Master
-
-  ServiceCatalogLaunchRoleArn:
-    Description: ARN of the Service Catalog Launch Role
-    Value: !GetAtt ServiceCatalogSetupStack.Outputs.ServiceCatalogLaunchRoleArn
-    Export:
-      Name: AgentDevEnv-ServiceCatalogLaunchRoleArn-Master
-      
-  ArtifactBucketName:
-    Description: Name of the S3 bucket for storing artifacts
-    Value: !GetAtt ServiceCatalogSetupStack.Outputs.ArtifactBucketName
-    Export:
-      Name: AgentDevEnv-ArtifactBucketName-Master
+# Outputs section removed as these values are already exported from child stacks

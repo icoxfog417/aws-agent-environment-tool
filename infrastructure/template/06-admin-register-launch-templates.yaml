@@ -13,6 +13,41 @@ Parameters:
     Description: ManagedBy tag value for all resources
 
 Resources:
+  # IAM Role for Service Catalog Launch Constraint
+  ServiceCatalogLaunchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: servicecatalog.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ServiceCatalogLaunchPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:*
+                  - ec2:*
+                  - iam:PassRole
+                  - iam:GetRole
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - s3:GetObject
+                  - servicecatalog:*
+                  - ssm:*
+                Resource: '*'
+      Path: /
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
   # Configurable Development Environment Product
   DevEnvironmentProduct:
     Type: AWS::ServiceCatalog::CloudFormationProduct
@@ -39,6 +74,24 @@ Resources:
     Properties:
       PortfolioId: !ImportValue AgentDevEnv-PortfolioId
       ProductId: !Ref DevEnvironmentProduct
+      
+  # Add launch role constraint to the product
+  LaunchRoleConstraint:
+    Type: AWS::ServiceCatalog::LaunchRoleConstraint
+    DependsOn: DevEnvironmentProductAssociation
+    Properties:
+      PortfolioId: !ImportValue AgentDevEnv-PortfolioId
+      ProductId: !Ref DevEnvironmentProduct
+      RoleArn: !GetAtt ServiceCatalogLaunchRole.Arn
+      Description: Launch role constraint for Development Environment product
+      
+  # Grant access to the portfolio for all users in the account
+  PortfolioPrincipalAssociation:
+    Type: AWS::ServiceCatalog::PortfolioPrincipalAssociation
+    Properties:
+      PortfolioId: !ImportValue AgentDevEnv-PortfolioId
+      PrincipalARN: 'arn:aws:iam:::role/*'
+      PrincipalType: IAMIAM_PATTERN
 
 Outputs:
   DevEnvironmentProductId:
@@ -46,3 +99,9 @@ Outputs:
     Value: !Ref DevEnvironmentProduct
     Export:
       Name: AgentDevEnv-DevEnvironmentProductId
+      
+  ServiceCatalogLaunchRoleArn:
+    Description: ARN of the Service Catalog Launch Role
+    Value: !GetAtt ServiceCatalogLaunchRole.Arn
+    Export:
+      Name: AgentDevEnv-ServiceCatalogLaunchRoleArn

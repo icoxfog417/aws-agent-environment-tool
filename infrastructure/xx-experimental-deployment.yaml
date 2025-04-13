@@ -1,0 +1,46 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Master deployment template for Agent Development Environment Infrastructure'
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: AgentDevEnv
+    Description: Project tag value for all resources
+  
+  ManagedByTag:
+    Type: String
+    Default: Administrator
+    Description: ManagedBy tag value for all resources
+
+  ArtifactBucketName:
+    Type: String
+    Description: Name of the S3 bucket for storing artifacts (including account ID suffix)
+
+PatchManagementStack:
+  Type: AWS::CloudFormation::Stack
+  DependsOn: ServiceCatalogSetupStack
+  Properties:
+    TemplateURL: !Sub 'https://${ArtifactBucketName}.s3.${AWS::Region}.amazonaws.com/infrastructure/0a-admin-patch-management.yaml'
+    Parameters:
+      ProjectTag: !Ref ProjectTag
+      ManagedByTag: !Ref ManagedByTag
+    Tags:
+      - Key: Project
+        Value: !Ref ProjectTag
+      - Key: ManagedBy
+        Value: !Ref ManagedByTag
+
+MonitoringDashboardStack:
+  Type: AWS::CloudFormation::Stack
+  DependsOn: PatchManagementStack
+  Properties:
+    TemplateURL: !Sub 'https://${ArtifactBucketName}.s3.${AWS::Region}.amazonaws.com/infrastructure/0b-admin-monitoring-dashboard.yaml'
+    Parameters:
+      ProjectTag: !Ref ProjectTag
+      ManagedByTag: !Ref ManagedByTag
+    Tags:
+      - Key: Project
+        Value: !Ref ProjectTag
+      - Key: ManagedBy
+        Value: !Ref ManagedByTag

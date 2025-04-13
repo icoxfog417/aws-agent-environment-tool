@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Register Product to AWS Service Catalog for ubuntu'
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: AgentDevEnv
+    Description: Project tag value for all resources
+  
+  ManagedByTag:
+    Type: String
+    Default: Administrator
+    Description: ManagedBy tag value for all resources
+
+  ArtifactBucketName:
+    Type: String
+    Description: Name of the S3 bucket for storing artifacts (including account ID suffix)
+  
+Resources:
+  # Configurable Development Environment Product
+  DevEnvironmentProduct:
+    Type: AWS::ServiceCatalog::CloudFormationProduct
+    Properties:
+      Name: Development Environment
+      Description: Configurable development environment with selectable instance type
+      Owner: !ImportValue AgentDevEnv-PortfolioOwner
+      ProvisioningArtifactParameters:
+        - Name: v1.1
+          Description: Initial version
+          Info:
+            LoadTemplateFromURL: !Sub 'https://${ArtifactBucketName}.s3.${AWS::Region}.amazonaws.com/03-product/ubuntu-product.yaml'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+  # Associate product with portfolio
+  DevEnvironmentProductAssociation:
+    Type: AWS::ServiceCatalog::PortfolioProductAssociation
+    Properties:
+      PortfolioId: !ImportValue AgentDevEnv-PortfolioId
+      ProductId: !Ref DevEnvironmentProduct
+      
+  # Add launch role constraint to the product
+  LaunchRoleConstraint:
+    Type: AWS::ServiceCatalog::LaunchRoleConstraint
+    DependsOn: DevEnvironmentProductAssociation
+    Properties:
+      PortfolioId: !ImportValue AgentDevEnv-PortfolioId
+      ProductId: !Ref DevEnvironmentProduct
+      RoleArn: !ImportValue AgentDevEnv-ServiceCatalogLaunchRoleArn  
+      Description: Launch role constraint for Development Environment product

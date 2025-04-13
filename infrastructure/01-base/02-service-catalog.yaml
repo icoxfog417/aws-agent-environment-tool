@@ -26,10 +26,6 @@ Parameters:
     Type: String
     Default: IT Administrator
     Description: Owner of the Service Catalog portfolio
-    
-  ArtifactBucketName:
-    Type: String
-    Description: Name of the S3 bucket for storing artifacts (including account ID suffix)
 
 Resources:
   # Application Manager Configuration
@@ -79,6 +75,49 @@ Resources:
         - Key: ManagedBy
           Value: !Ref ManagedByTag
 
+  # IAM Role for Service Catalog Launch Constraint
+  ServiceCatalogLaunchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: servicecatalog.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ServiceCatalogLaunchPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:*
+                  - ec2:*
+                  - iam:PassRole
+                  - iam:GetRole
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - s3:GetObject
+                  - servicecatalog:*
+                  - ssm:*
+                Resource: '*'
+      Path: /
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+  # Grant access to the portfolio for all users in the account
+  PortfolioPrincipalAssociation:
+    Type: AWS::ServiceCatalog::PortfolioPrincipalAssociation
+    Properties:
+      PortfolioId: !Ref ServiceCatalogPortfolio
+      PrincipalARN: 'arn:aws:iam:::role/*'
+      PrincipalType: IAM_PATTERN
+
 Outputs:
   ApplicationId:
     Description: Application ID for AgentDevEnv
@@ -97,9 +136,9 @@ Outputs:
     Value: !Ref PortfolioOwner
     Export:
       Name: AgentDevEnv-PortfolioOwner
-      
-  ArtifactBucketName:
-    Description: Name of the S3 bucket for storing artifacts
-    Value: !Ref ArtifactBucketName
+
+  ServiceCatalogLaunchRoleArn:
+    Description: ARN of the Service Catalog Launch Role
+    Value: !GetAtt ServiceCatalogLaunchRole.Arn
     Export:
-      Name: AgentDevEnv-ArtifactBucketName
+      Name: AgentDevEnv-ServiceCatalogLaunchRoleArn

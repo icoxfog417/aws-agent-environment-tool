@@ -105,6 +105,40 @@ def deploy_cloudformation_stack(template_path: str, stack_name: str, region: str
             sys.exit(1)
 
 
+def get_cloudformation_output(output_name: str, region: str) -> Optional[str]:
+    """Get an exported CloudFormation output value
+    
+    Args:
+        output_name: Name of the exported output to retrieve
+        region: AWS region where the stack is deployed
+        
+    Returns:
+        Optional[str]: The output value if found, or None if not found
+    """
+    cf_client = boto3.client('cloudformation', region_name=region)
+    
+    try:
+        # Get exports from CloudFormation with pagination handling
+        response = cf_client.list_exports()
+        while True:
+            exports = response.get('Exports', [])
+            for export in exports:
+                if export['Name'] == output_name:
+                    return export['Value']
+            
+            # Break the loop if no more pages
+            if 'NextToken' not in response:
+                break
+            response = cf_client.list_exports(NextToken=response['NextToken'])
+
+        click.echo(f"Error: Could not find CloudFormation export '{output_name}'", err=True)
+        return None
+        
+    except ClientError as e:
+        click.echo(f"Error retrieving CloudFormation export: {e}", err=True)
+        return None
+
+
 def check_s3_bucket_exists(bucket_name: str, region: str) -> bool:
     """Check if an S3 bucket exists"""
     s3_client = boto3.client('s3', region_name=region)
@@ -159,50 +193,45 @@ def create_s3_bucket(bucket_name: str, region: str) -> None:
         sys.exit(1)
 
 
-def upload_templates_to_s3(bucket_name: str, region: str) -> None:
-    """Upload CloudFormation templates to S3 bucket"""
+def upload_templates_to_s3(directory: Path, bucket_name: str, region: str) -> None:
+    """Upload CloudFormation templates to S3 bucket while preserving directory structure
+    
+    Args:
+        bucket_name: Name of the S3 bucket to upload to
+        region: AWS region where the bucket is located
+        directory: Optional subdirectory under 'infrastructure/' to upload from
+                  If None, all files in infrastructure/ will be uploaded
+    """
     s3_client = boto3.client('s3', region_name=region)
     
-    # Get the infrastructure directory using pathlib
-    infra_dir = Path(__file__).parent.parent / "infrastructure"
+    if not(directory.exists() and directory.is_dir()):
+        click.echo(f"Error: Directory '{directory}' not found", err=True)
+        return None
+    elif directory.parent.name != "infrastructure":
+        click.echo("Error: Directory must be under 'infrastructure/'", err=True)
+        return None
     
-    # Define directories to process
-    directories = [
-        infra_dir,
-        infra_dir / "initial",
-        infra_dir / "template"
-    ]
+    # Walk through the target directory recursively
+    yaml_files = list(directory.glob("*.yaml"))
     
-    click.echo("Uploading CloudFormation templates to S3...")
-    
-    # Upload files from each directory
-    for directory in directories:
-        if directory.exists():
-            for file_path in directory.glob("*.yaml"):
-                # All templates go to the infrastructure/ prefix
-                s3_key = f"infrastructure/{file_path.name}"
-                
-                click.echo(f"Uploading {file_path} to s3://{bucket_name}/{s3_key}")
-                try:
-                    s3_client.upload_file(str(file_path), bucket_name, s3_key)
-                except ClientError as e:
-                    click.echo(f"Error uploading file: {e}", err=True)
-                    sys.exit(1)
-    
-    # Upload the dev-environment-template.yaml to templates/ prefix
-    dev_env_template = infra_dir / "template" / "dev-environment-template.yaml"
-    if dev_env_template.exists():
-        s3_key = "templates/dev-environment-template.yaml"
-        click.echo(f"Uploading {dev_env_template} to s3://{bucket_name}/{s3_key}")
+    if not yaml_files:
+        click.echo(f"No YAML files found in {directory}")
+        return
+
+    # Upload each file while preserving relative path
+    for file_path in yaml_files:
+        # Calculate relative path from infrastructure directory parent
+        relative_path = file_path.relative_to(directory.parent)
+        s3_key = str(relative_path)
+        
+        click.echo(f"Uploading {file_path} to s3://{bucket_name}/{s3_key}")
         try:
-            s3_client.upload_file(str(dev_env_template), bucket_name, s3_key)
+            s3_client.upload_file(str(file_path), bucket_name, s3_key)
         except ClientError as e:
             click.echo(f"Error uploading file: {e}", err=True)
             sys.exit(1)
-    else:
-        click.echo(f"Warning: {dev_env_template} not found", err=True)
     
-    click.echo(click.style("All templates uploaded successfully", fg="green"))
+    click.echo(click.style(f"Successfully uploaded {len(yaml_files)} template(s)", fg="green"))
 
 
 @click.group()
@@ -226,14 +255,14 @@ def developer():
 @admin.command("deploy")
 @click.option("--region", help="AWS region to deploy to")
 @click.option("--artifact-bucket-name", help="Name for the S3 bucket to store artifacts (will be suffixed with account ID)")
-def admin_deploy(region: Optional[str], artifact_bucket_name: Optional[str]):
+def admin_deploy(region: Optional[str], artifact_bucket_name: Optional[str]) -> None:
     """Deploy the base infrastructure for development environments"""
     click.echo(click.style("=== Administrator Setup Deployment ===", fg="blue"))
-    
+
     # Check AWS credentials
     if not check_aws_credentials():
         click.echo("Not authenticated with AWS. Please run 'aws sso login' first.", err=True)
-        sys.exit(1)
+        return None
     
     # Get region if not provided
     if not region:
@@ -258,33 +287,85 @@ def admin_deploy(region: Optional[str], artifact_bucket_name: Optional[str]):
         click.echo(f"S3 bucket {full_bucket_name} already exists")
     else:
         create_s3_bucket(full_bucket_name, region)
-    
-    # Upload CloudFormation templates to S3
-    upload_templates_to_s3(full_bucket_name, region)
-    
-    # Get the infrastructure directory
+
+    # Deploy the base deployment stack
+    base_stack_name = "AgentDevEnv-Infrastructure-Base"
     infra_dir = Path(__file__).parent.parent / "infrastructure"
-    
-    # Deploy the master deployment stack
-    master_stack_name = "AgentDevEnv-Infrastructure-Master"
-    click.echo("Deploying master CloudFormation stack...")
-    
-    # Use the deploy_cloudformation_stack function with parameters
+    upload_templates_to_s3(infra_dir / "01-base", full_bucket_name, region)
+    click.echo("Deploying Base CloudFormation stack...")
+
     deploy_cloudformation_stack(
-        str(infra_dir / "00-admin-deployment.yaml"),
-        master_stack_name,
+        str(infra_dir / "01-base-deployment.yaml"),
+        base_stack_name,
         region,
         parameters={
             'ArtifactBucketName': full_bucket_name
         }
     )
-    
+
+    # Deploy Launch Template and upload CloudFormation file for product
+    click.echo("Deploying Launch Templates...")
+    for template_file in infra_dir.glob("02-template/*.yaml"):
+        environment_name = template_file.name.replace("-template.yaml", "")
+        stack_name = f"AgentDevEnv-{environment_name}-LaunchTemplate"
+        deploy_cloudformation_stack(
+            str(template_file),
+            stack_name,
+            region
+        )
+
+        # Get the Launch Template ID and Version
+        launch_template_id = get_cloudformation_output(f"AgentDevEnv-{environment_name}-LaunchTemplateId", region)
+        launch_template_version = get_cloudformation_output(f"AgentDevEnv-{environment_name}-LaunchTemplateVersion", region)
+        subnet_id = get_cloudformation_output("AgentDevEnv-PublicSubnet1Id", region)
+
+        # Edit product file and store it to 03-product directory
+        environments = []
+        template_path = infra_dir / "03-product-template.yaml"
+        with open(template_path, 'r') as file:
+            template_content = file.read()
+        template_content = template_content.replace("{{Environment}}", environment_name)
+        template_content = template_content.replace("{{LaunchTemplateId}}", launch_template_id)
+        template_content = template_content.replace("{{LaunchTemplateVersion}}", launch_template_version)
+        template_content = template_content.replace("{{SubnetId}}", subnet_id)
+        filled_path = infra_dir / "03-product" / f"{environment_name}-product.yaml"
+        with open(filled_path, 'w') as file:
+            file.write(template_content)
+        
+        environments.append(environment_name)
+
+    # Upload all files in product directory to S3
+    upload_templates_to_s3(infra_dir / "03-product", full_bucket_name, region)
+
+    # Deploy products by executing 02-register-products.yaml
+    click.echo("Deploying Products to Service Catalog...")
+    for environment in environments:
+        # Open the product-service-template.yaml file and replace the placeholder with the bucket name
+        template_path = infra_dir / "04-product-service-template.yaml"
+        with open(template_path, 'r') as file:
+            product_service_content = file.read()
+        product_service_content = product_service_content.replace("{{Environment}}", environment)
+        filled_path = infra_dir / "04-product-service" / f"{environment}-product-service.yaml"
+        with open(filled_path, 'w') as file:
+            file.write(product_service_content)
+
+        product_service_stack_name = f"AgentDevEnv-{environment}-ProductService"
+        deploy_cloudformation_stack(
+            str(filled_path),
+            product_service_stack_name,
+            region,
+            parameters={
+                'ArtifactBucketName': full_bucket_name
+            }
+        )
+
     click.echo(click.style("Administrator setup complete!", fg="green"))
-    click.echo(f"Master stack: {master_stack_name}")
+    click.echo(f"Base stack: {base_stack_name}")
+    click.echo(f"Registered products: {', '.join(environments)}")
     click.echo(f"Artifact S3 bucket: {full_bucket_name}")
     click.echo("")
     click.echo(click.style("You can now launch development environments using:", fg="blue"))
-    click.echo("python -m application.cli developer launch --key keyname [--region REGION] [--type standard|high|extra]")
+    click.echo("uv run python -m application.cli developer launch --key keyname [--region REGION] [--type standard|high|extra]")
 
 
 @developer.command("launch")
@@ -304,311 +385,138 @@ def developer_launch(region: str, env_type: str, key: str):
 
     # Initialize Service Catalog client
     sc_client = boto3.client('servicecatalog', region_name=region)
-    
-    # Get portfolio ID
-    portfolio_name = "Development Environment Portfolio"
-    click.echo("Fetching available development environment templates...")
-    
-    try:
-        portfolios = sc_client.list_portfolios()
-        portfolio_id = None
+    portfolio_id = get_cloudformation_output("AgentDevEnv-PortfolioId", region)    
+    click.echo(f"Fetching available development environments from {portfolio_id}...")
         
-        for portfolio in portfolios.get('PortfolioDetails', []):
-            if portfolio.get('DisplayName') == portfolio_name:
-                portfolio_id = portfolio.get('Id')
-                break
-        
-        if not portfolio_id:
-            click.echo(click.style(f"No portfolio found with name '{portfolio_name}'.", fg="yellow"))
-            click.echo("Please check with your administrator that the environment is properly set up.")
-            sys.exit(1)
-        
-        click.echo(click.style(f"Found portfolio: {portfolio_id}", fg="green"))
-        
-        # List products in the portfolio
-        search_products_response = sc_client.search_products_as_admin(PortfolioId=portfolio_id)
-        products = []
+    # List products in the portfolio
+    search_products_response = sc_client.search_products_as_admin(PortfolioId=portfolio_id)
 
-        for product_view_detail in search_products_response.get('ProductViewDetails', []):
-            product_view = product_view_detail.get('ProductViewSummary', {})
-            products.append({
-                'Id': product_view.get('ProductId'),
-                'Name': product_view.get('Name'),
-                'Description': product_view.get('ShortDescription', 'No description available')
-            })
-        
-        # Display products
-        click.echo("Available development environment templates:")
-        click.echo(click.style("ID\t\t\t\tName\t\t\t\tDescription", fg="blue"))
-        for product in products:
-            click.echo(f"{product['Id']}\t{product['Name']}\t{product['Description']}")
-        
-        # Get environment type from user if not provided
-        if not env_type:
-            click.echo("")
-            click.echo(click.style("Select a development environment type:", fg="yellow"))
-            click.echo("1) Standard Development Environment (4GB RAM, 2 vCPU - t3.medium)")
-            click.echo("2) High Performance Development Environment (8GB RAM, 2 vCPU - t3.large)")
-            click.echo("3) Extra Performance Development Environment (16GB RAM, 4 vCPU - t3.xlarge)")
-            
-            choice = click.prompt("Enter your choice", type=click.Choice(["1", "2", "3"]))
-            
-            if choice == "1":
-                env_type = "standard"
-            elif choice == "2":
-                env_type = "high"
-            elif choice == "3":
-                env_type = "extra"
-        
-        # Map environment type to instance type
-        instance_type_map = {
-            "standard": "t3.medium",
-            "high": "t3.large",
-            "extra": "t3.xlarge"
+    products = []
+    # Display products
+    click.echo(click.style("\t".join(["Index", "ID", "Name", "Description"]), fg="blue"))
+    for product_view_detail in search_products_response.get('ProductViewDetails', []):
+        product_view = product_view_detail.get('ProductViewSummary', {})
+        product = {
+            'Id': product_view.get('ProductId'),
+            'Name': product_view.get('Name'),
+            'Description': product_view.get('ShortDescription', 'No description available')
         }
-        
-        instance_type = instance_type_map[env_type]
-        
-        # Use the unified Development Environment product
-        product_name = "Development Environment"
-        
-        # Get product ID based on name
-        product_id = None
-        for product in products:
-            if product["Name"] == product_name:
-                product_id = product["Id"]
-                break
-        
-        if not product_id:
-            click.echo(click.style(f"Error: Could not find product with name '{product_name}'.", fg="red"))
-            sys.exit(1)
-        
-        # Get provisioning artifact ID (version)
-        describe_product_response = sc_client.describe_product(Id=product_id)
-        provisioning_artifacts = describe_product_response.get('ProvisioningArtifacts', [])
-        
-        if not provisioning_artifacts:
-            click.echo(click.style("Error: No provisioning artifacts found for product.", fg="red"))
-            sys.exit(1)
-        
-        # Use the first (latest) provisioning artifact
-        artifact_id = provisioning_artifacts[0].get('Id')
-        
-        # Get username for unique naming
-        username = getpass.getuser()
-        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        provisioned_product_name = f"{username}-dev-env-{timestamp}"
-        
-        click.echo(click.style("Launching development environment...", fg="blue"))
-        click.echo(f"Product: {product_name}")
-        click.echo(f"Instance Type: {instance_type}")
-        click.echo(f"Provisioned Product Name: {provisioned_product_name}")
-        
-        # Launch the product with parameters
-        provision_response = sc_client.provision_product(
-            ProductId=product_id,
-            ProvisioningArtifactId=artifact_id,
-            ProvisionedProductName=provisioned_product_name,
-            ProvisioningParameters=[
-                {
-                    'Key': 'InstanceType',
-                    'Value': instance_type
-                },
-                {
-                    'Key': 'UserName',
-                    'Value': username
-                },
-                {
-                    'Key': 'KeyName',
-                    'Value': key
-                }
-            ]
-        )
-        
-        click.echo(click.style("Development environment launch initiated!", fg="green"))
-        click.echo(f"Provisioned Product ID: {provision_response.get('RecordDetail', {}).get('ProvisionedProductId')}")
-        click.echo("")
-        click.echo(click.style("To check the status of your environment:", fg="yellow"))
-        click.echo(f"Run: python -m application.cli developer status --name {provisioned_product_name}")
-        click.echo("")
-        click.echo(click.style("Once provisioning is complete, you can find your instance ID in the outputs.", fg="yellow"))
-        click.echo(f"Run: python -m application.cli developer outputs --name {provisioned_product_name}")
-        click.echo("")
-        click.echo(click.style("To connect to your instance using Session Manager:", fg="blue"))
-        click.echo("aws ssm start-session --target i-xxxxxxxxxxxxxxxxx")
-        click.echo("(Replace i-xxxxxxxxxxxxxxxxx with your actual instance ID from the outputs)")
-        
-    except ClientError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
+        products.append(product)
+        click.echo(f"{len(products)})\t{product['Id']}\t{product['Name']}\t{product['Description']}")
 
+    choice = click.prompt("Enter your choice", type=click.Choice([f"{index + 1}" for index in range(len(products))]))
+    chosed_product = products[int(choice) - 1]
+    product_id = chosed_product['Id']
 
-@developer.command("status")
-@click.option("--name", required=True, help="Name of the provisioned product")
-@click.option("--region", help="AWS region")
-def developer_status(name: str, region: Optional[str]):
-    """Check the status of a provisioned development environment"""
-    if not check_aws_credentials():
-        click.echo("Not authenticated with AWS. Please run 'aws sso login' first.", err=True)
+    # Get environment type from user if not provided
+    if not env_type:
+        click.echo("")
+        click.echo(click.style("Select a development environment type:", fg="yellow"))
+        click.echo("1) Standard Development Environment (4GB RAM, 2 vCPU - t3.medium)")
+        click.echo("2) High Performance Development Environment (8GB RAM, 2 vCPU - t3.large)")
+        click.echo("3) Extra Performance Development Environment (16GB RAM, 4 vCPU - t3.xlarge)")
+        
+        choice = click.prompt("Enter your choice", type=click.Choice(["1", "2", "3"]))
+        
+        if choice == "1":
+            env_type = "standard"
+        elif choice == "2":
+            env_type = "high"
+        elif choice == "3":
+            env_type = "extra"
+        
+    # Map environment type to instance type
+    instance_type_map = {
+        "standard": "t3.medium",
+        "high": "t3.large",
+        "extra": "t3.xlarge"
+    }
+    
+    instance_type = instance_type_map[env_type]
+
+    # Get provisioning artifact ID (version)
+    describe_product_response = sc_client.describe_product(Id=product_id)
+    provisioning_artifacts = describe_product_response.get('ProvisioningArtifacts', [])
+        
+    if not provisioning_artifacts:
+        click.echo(click.style("Error: No provisioning artifacts found for product.", fg="red"))
         sys.exit(1)
-    
-    if not region:
-        region = get_aws_region()
-    
-    sc_client = boto3.client('servicecatalog', region_name=region)
-    
-    try:
-        response = sc_client.describe_provisioned_product(Name=name)
-        product_detail = response.get('ProvisionedProductDetail', {})
         
-        status = product_detail.get('Status')
-        status_message = product_detail.get('StatusMessage', 'No status message available')
+    # Use the first (latest) provisioning artifact
+    artifact_id = provisioning_artifacts[0].get('Id')
         
-        click.echo(f"Provisioned Product: {name}")
-        click.echo(f"Status: {status}")
-        click.echo(f"Status Message: {status_message}")
-        click.echo(f"Created: {product_detail.get('CreatedTime')}")
+    # Get username for unique naming
+    username = getpass.getuser()
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    provisioned_product_name = f"{username}-{chosed_product['Name'].replace(" ", "-").strip()}-{timestamp}"
+
+    click.echo(click.style("Launching development environment...", fg="blue"))
+    click.echo(f"Product: {chosed_product['Name']}")
+    click.echo(f"Instance Type: {instance_type}")
+    click.echo(f"Provisioned Product Name: {provisioned_product_name}")
         
-        if status == 'ERROR':
-            click.echo(click.style("Provisioning failed. Check the AWS Service Catalog console for more details.", fg="red"))
-        elif status == 'AVAILABLE':
+    # Launch the product with parameters
+    command_id = f"Command-{provisioned_product_name}"
+    # Launch the product with parameters
+    provision_response = sc_client.provision_product(
+        ProductId=product_id,
+        ProvisioningArtifactId=artifact_id,
+        ProvisionedProductName=provisioned_product_name,
+        ProvisioningParameters=[
+            {
+                'Key': 'InstanceType',
+                'Value': instance_type
+            },
+            {
+                'Key': 'UserName',
+                'Value': username
+            },
+            {
+                'Key': 'KeyName',
+                'Value': key
+            },
+            {
+                'Key': 'CommandId',
+                'Value': command_id
+            }
+        ]
+    )
+    
+    # Get the provisioned product ID
+    provisioned_product_id = provision_response.get('RecordDetail', {}).get('ProvisionedProductId')
+    
+    # Wait for provisioning to complete
+    click.echo("Waiting for provisioning to complete. This may take several minutes...")
+    while True:
+        status_response = sc_client.describe_provisioned_product(Id=provisioned_product_id)
+        status = status_response.get('ProvisionedProductDetail', {}).get('Status')
+        
+        if status == 'AVAILABLE':
             click.echo(click.style("Provisioning completed successfully!", fg="green"))
-    
-    except ClientError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
+            break
+        elif status in ['ERROR', 'TAINTED']:
+            click.echo(click.style(f"Provisioning failed with status: {status}", fg="red"))
+            break
+        elif status == 'UNDER_CHANGE':
+            click.echo("Provisioning in progress...")
+            time.sleep(5)
+        else:
+            click.echo(f"Current status: {status}")
+            time.sleep(5)
 
-
-@developer.command("outputs")
-@click.option("--name", required=True, help="Name of the provisioned product")
-@click.option("--region", help="AWS region")
-def developer_outputs(name: str, region: Optional[str]):
-    """Get the outputs of a provisioned development environment"""
-    if not check_aws_credentials():
-        click.echo("Not authenticated with AWS. Please run 'aws sso login' first.", err=True)
-        sys.exit(1)
-    
-    if not region:
-        region = get_aws_region()
-    
-    sc_client = boto3.client('servicecatalog', region_name=region)
-    
-    try:
-        response = sc_client.describe_provisioned_product(Name=name)
-        outputs = response.get('ProvisionedProductDetail', {}).get('Outputs', [])
-        
-        if not outputs:
-            click.echo("No outputs found for this provisioned product.")
-            return
-        
-        click.echo(click.style(f"Outputs for {name}:", fg="blue"))
-        for output in outputs:
-            output_key = output.get('OutputKey')
-            output_value = output.get('OutputValue')
-            description = output.get('Description', 'No description')
-            
-            click.echo(f"{output_key}: {output_value}")
-            click.echo(f"  Description: {description}")
-        
-        # Look for instance ID specifically
-        instance_ids = [output.get('OutputValue') for output in outputs 
-                       if output.get('OutputKey') == 'InstanceId' or 'instance' in output.get('OutputKey', '').lower()]
-        
-        if instance_ids:
-            click.echo("")
-            click.echo(click.style("To connect to your instance using Session Manager:", fg="green"))
-            for instance_id in instance_ids:
-                click.echo(f"aws ssm start-session --target {instance_id}")
-    
-    except ClientError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-
-@developer.command("list")
-@click.option("--region", help="AWS region")
-def developer_list(region: Optional[str]):
-    """List all provisioned development environments"""
-    if not check_aws_credentials():
-        click.echo("Not authenticated with AWS. Please run 'aws sso login' first.", err=True)
-        sys.exit(1)
-    
-    if not region:
-        region = get_aws_region()
-    
-    sc_client = boto3.client('servicecatalog', region_name=region)
-    
-    try:
-        response = sc_client.search_provisioned_products()
-        products = response.get('ProvisionedProducts', [])
-        
-        if not products:
-            click.echo("No provisioned products found.")
-            return
-        
-        click.echo(click.style("Provisioned Development Environments:", fg="blue"))
-        click.echo(f"{'Name':<40} {'Status':<15} {'Type':<30} {'Created'}")
-        click.echo("-" * 100)
-        
-        for product in products:
-            name = product.get('Name')
-            status = product.get('Status')
-            product_type = product.get('Type')
-            created = product.get('CreatedTime').strftime("%Y-%m-%d %H:%M:%S") if product.get('CreatedTime') else "Unknown"
-            
-            status_color = "green" if status == "AVAILABLE" else "yellow" if status == "UNDER_CHANGE" else "red"
-            
-            click.echo(f"{name:<40} {click.style(f'{status:<15}', fg=status_color)} {product_type:<30} {created}")
-    
-    except ClientError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-
-@developer.command("terminate")
-@click.option("--name", required=True, help="Name of the provisioned product to terminate")
-@click.option("--region", help="AWS region")
-@click.option("--force", is_flag=True, help="Force termination without confirmation")
-def developer_terminate(name: str, region: Optional[str], force: bool):
-    """Terminate a provisioned development environment"""
-    if not check_aws_credentials():
-        click.echo("Not authenticated with AWS. Please run 'aws sso login' first.", err=True)
-        sys.exit(1)
-    
-    if not region:
-        region = get_aws_region()
-    
-    sc_client = boto3.client('servicecatalog', region_name=region)
-    
-    try:
-        # First check if the product exists
-        response = sc_client.describe_provisioned_product(Name=name)
-        product_detail = response.get('ProvisionedProductDetail', {})
-        product_id = product_detail.get('Id')
-        
-        if not product_id:
-            click.echo(f"Could not find provisioned product with name: {name}")
-            sys.exit(1)
-        
-        # Confirm termination
-        if not force:
-            confirm = click.confirm(f"Are you sure you want to terminate the environment '{name}'?")
-            if not confirm:
-                click.echo("Termination cancelled.")
-                return
-        
-        # Terminate the product
-        sc_client.terminate_provisioned_product(
-            ProvisionedProductId=product_id
-        )
-        
-        click.echo(click.style(f"Termination of '{name}' initiated.", fg="yellow"))
-        click.echo("This process may take several minutes to complete.")
-        click.echo(f"Check status with: onboarding developer status --name {name}")
-    
-    except ClientError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
+    click.echo(click.style("Development environment launch initiated!", fg="green"))
+    click.echo(f"Provisioned Product ID: {provision_response.get('RecordDetail', {}).get('ProvisionedProductId')}")
+    click.echo("")
+    click.echo(click.style("To check the status of your environment:", fg="yellow"))
+    click.echo(f"Run: python -m application.cli developer status --name {provisioned_product_name}")
+    click.echo("")
+    click.echo(click.style("Once provisioning is complete, you can find your instance ID in the outputs.", fg="yellow"))
+    click.echo(f"Run: python -m application.cli developer outputs --name {provisioned_product_name}")
+    click.echo("")
+    click.echo(click.style("To connect to your instance using Session Manager:", fg="blue"))
+    command = get_cloudformation_output(command_id, region)
+    click.echo("Connect by")
+    click.echo(command)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,76 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Development Environment Instance for ubuntu'
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: AgentDevEnv
+    Description: Project tag value for all resources
+  
+  ManagedByTag:
+    Type: String
+    Default: Developer
+    Description: ManagedBy tag value for all resources
+    
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues:
+      - t3.medium
+      - t3.large
+      - t3.xlarge
+    Description: EC2 instance type for the development environment
+
+  UserName:
+    Type: String
+    Description: Username for unique instance naming
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+  
+  CommandId:
+    Type: String
+    Description: Unique identifier for output command value
+
+Resources:
+  DevInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      KeyName: !Ref KeyName
+      LaunchTemplate:
+        LaunchTemplateId: 
+          lt-07bc968f78c154291
+        Version:
+          1
+      InstanceType: !Ref InstanceType
+      SubnetId:
+        subnet-0ea9de8407bfc2077
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectTag}-${UserName}-${InstanceType}"
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+        - Key: Owner
+          Value: !Ref UserName
+
+Outputs:
+  InstanceId:
+    Description: ID of the EC2 instance
+    Value: !Ref DevInstance
+  
+  InstanceDNS:
+    Description: DNS name of the EC2 instance
+    Value: !GetAtt DevInstance.PrivateDnsName
+    
+  InstanceType:
+    Description: Type of the EC2 instance
+    Value: !Ref InstanceType
+    
+  SSHCommand:
+    Description: Command to SSH into the instance via Session Manager
+    Value: !Sub "aws ssm start-session --target ${DevInstance} --document-name AWS-StartSSHSession --parameters 'portNumber=22'"
+    Export:
+      Name: !Ref CommandId

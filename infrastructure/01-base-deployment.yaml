@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Base infrastructure for Agent Development Environment'
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: AgentDevEnv
+    Description: Project tag value for all resources
+  
+  ManagedByTag:
+    Type: String
+    Default: Administrator
+    Description: ManagedBy tag value for all resources
+    
+  PortfolioName:
+    Type: String
+    Default: Development Environment Portfolio
+    Description: Name of the Service Catalog portfolio
+  
+  PortfolioDescription:
+    Type: String
+    Default: Portfolio containing development environment templates
+    Description: Description of the Service Catalog portfolio
+  
+  PortfolioOwner:
+    Type: String
+    Default: IT Administrator
+    Description: Owner of the Service Catalog portfolio
+    
+  ArtifactBucketName:
+    Type: String
+    Description: Name of the S3 bucket for storing artifacts (including account ID suffix)
+    
+Resources:
+  NetworkInfrastructureStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${ArtifactBucketName}.s3.${AWS::Region}.amazonaws.com/01-base/01-network-infrastructure.yaml'
+      Parameters:
+        ProjectTag: !Ref ProjectTag
+        ManagedByTag: !Ref ManagedByTag
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+  ServiceCatalogSetupStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: NetworkInfrastructureStack
+    Properties:
+      TemplateURL: !Sub 'https://${ArtifactBucketName}.s3.${AWS::Region}.amazonaws.com/01-base/02-service-catalog.yaml'
+      Parameters:
+        ProjectTag: !Ref ProjectTag
+        ManagedByTag: !Ref ManagedByTag
+        PortfolioName: !Ref PortfolioName
+        PortfolioDescription: !Ref PortfolioDescription
+        PortfolioOwner: !Ref PortfolioOwner
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: ManagedBy
+          Value: !Ref ManagedByTag
+
+Outputs:
+  ArtifactBucketName:
+    Description: Name of the S3 bucket for storing artifacts
+    Value: !Ref ArtifactBucketName
+    Export:
+      Name: AgentDevEnv-ArtifactBucketName

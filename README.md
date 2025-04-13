@@ -15,13 +15,27 @@ This tool provides a streamlined way to:
 
 ```
 onboarding/
-├── application/     # Python CLI application code
-├── infrastructure/  # CloudFormation templates for AWS infrastructure
-│   ├── initial/     # Base infrastructure templates
-│   └── template/    # Launch templates and service catalog configurations
-├── .venv/           # Python virtual environment (created by uv)
-├── pyproject.toml   # Python project configuration
-└── README.md        # This file
+├── application/        # Python CLI application code
+│   ├── __init__.py
+│   └── cli.py          # CLI implementation
+├── infrastructure/     # CloudFormation templates for AWS infrastructure
+│   ├── 01-base-deployment.yaml    # Base deployment template
+│   ├── 03-product-template.yaml   # Product template
+│   ├── 04-product-service-template.yaml  # Service template
+│   ├── 01-base/       # Base infrastructure templates
+│   │   ├── 01-network-infrastructure.yaml
+│   │   └── 02-service-catalog.yaml
+│   ├── 02-template/   # Launch templates for EC2 instances 
+│   │   └── ubuntu-template.yaml
+│   ├── 03-product/    # Generated product templates (created during deployment)
+│   ├── 04-product-service/ # Generated service templates (created during deployment)
+│   └── experimental/   # Experimental features
+│       ├── 0a-admin-patch-management.yaml
+│       └── 0b-admin-monitoring-dashboard.yaml
+├── tests/             # Test directory
+├── pyproject.toml     # Python project configuration
+├── uv.lock            # Package lock file for uv package manager
+└── README.md          # This file
 ```
 
 ## How to Use the Tool
@@ -32,7 +46,7 @@ onboarding/
 - Python 3.12 or higher
 - uv package manager
 
-### How to Initialize the Environment
+### Setup for Administrators
 
 As an administrator, you need to set up the base infrastructure before agents can launch their working environments:
 
@@ -45,121 +59,38 @@ uv add boto3 click
 2. Deploy the infrastructure:
 
 ```bash
-uv run python -m application.cli admin deploy [--region REGION]
+uv run python -m application.cli admin deploy [--region REGION] [--artifact-bucket-name NAME]
 ```
 
-#### Infrastructure Deployment Details
+Options:
+- `--region`: Specify an AWS region (defaults to the region from AWS configuration)
+- `--artifact-bucket-name`: Name for the S3 bucket to store artifacts (will be suffixed with account ID)
 
-The deployment process creates several CloudFormation stacks that set up the complete environment:
+### Launching Development Environments for Developers
 
-```mermaid
-flowchart TD
-    A[Admin Deploy Command] --> B[Initial Infrastructure]
-    A --> C[Template Infrastructure]
-    
-    B --> D[Main Admin Stack]
-    B --> E[Network Infrastructure]
-    B --> F[Service Catalog Setup]
-    B --> G[Patch Management]
-    B --> H[Monitoring Dashboard]
-    
-    C --> I[Launch Templates]
-    C --> J[Service Catalog Registration]
-    
-    I --> K[Standard Environment]
-    I --> L[High Performance Environment]
-    I --> M[Extra Performance Environment]
-    
-    K --> N[t3.medium Instance]
-    L --> O[t3.large Instance]
-    M --> P[t3.xlarge Instance]
-```
-
-The deployment creates the following stacks:
-
-1. **Initial Infrastructure (`infrastructure/initial/`)**
-   - **Main Admin Stack (`00-admin-main.yaml`)**
-     - Core stack that orchestrates the deployment of all other stacks
-   - **Network Infrastructure (`01-admin-network-infrastructure.yaml`)**
-     - VPC with private subnets
-     - Security Groups for development access
-     - SSM VPC Endpoints for secure instance management
-   - **Service Catalog Setup (`02-admin-service-catalog-setup.yaml`)**
-     - Service Catalog Portfolio configuration
-     - Application Registry setup
-     - S3 Bucket for artifacts
-   - **Patch Management (`03-admin-patch-management.yaml`)**
-     - Systems Manager Patch Baseline
-   - **Monitoring Dashboard (`04-admin-monitoring-dashboard.yaml`)**
-     - CloudWatch dashboards for environment monitoring
-     - Alarms for idle instance detection
-
-2. **Template Infrastructure (`infrastructure/template/`)**
-   - **Launch Templates (`05-admin-launch-template.yaml`)**
-     - EC2 Launch Templates for different instance types
-   - **Service Catalog Registration (`06-admin-register-launch-templates.yaml`)**
-     - Products for different environment sizes:
-       - Standard: 4GB RAM, 2 vCPU (t3.medium)
-       - High Performance: 8GB RAM, 2 vCPU (t3.large)
-       - Extra Performance: 16GB RAM, 4 vCPU (t3.xlarge)
-
-### How to Launch Environment and Connect Through VSCode
-
-As an agent, you can launch your working environment:
-
-1. Launch a new environment:
+Once the administrator has set up the infrastructure, developers can launch their own environments:
 
 ```bash
-uv run python -m application.cli developer launch --key name [--region REGION] [--type standard|high|extra]
+uv run python -m application.cli developer launch --region REGION --key KEY_NAME --type TYPE
 ```
 
-2. Check the status of your environment:
+Required parameters:
+- `--region`: AWS region where the infrastructure is deployed
+- `--key`: Name of an existing EC2 key pair for SSH access
+- `--type`: Type of environment to launch (standard, high, or extra)
+  - standard: 4GB RAM, 2 vCPU (t3.medium)
+  - high: 8GB RAM, 2 vCPU (t3.large)
+  - extra: 16GB RAM, 4 vCPU (t3.xlarge)
 
-```bash
-python -m application.cli developer status --name YOUR_ENVIRONMENT_NAME
-```
+After launching an environment, you'll receive instructions on how to connect to the instance.
 
-3. Once the environment is ready, get the connection details:
+## Infrastructure Deployment Details
 
-```bash
-python -m application.cli developer outputs --name YOUR_ENVIRONMENT_NAME
-```
+The infrastructure deployment process includes:
+1. Creating an S3 bucket for CloudFormation templates and artifacts
+2. Deploying base network infrastructure (VPC, subnets, etc.)
+3. Setting up Service Catalog with launch templates
+4. Creating product templates for different environment types
 
-4. Connect to your environment through VSCode:
-   - Install the "Remote - SSH" extension in VSCode
-   - Use the connection details from the previous step to configure a new SSH host
-   - Connect to the host through the Remote Explorer in VSCode
+The deployment is handled through AWS CloudFormation to ensure consistent and repeatable infrastructure.
 
-5. When you're done, terminate your environment:
-
-```bash
-python -m application.cli developer terminate --name YOUR_ENVIRONMENT_NAME
-```
-
-### Additional Commands
-
-List all your provisioned environments:
-
-```bash
-python -m application.cli developer list [--region REGION]
-```
-
-## How to Contribute
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Commit your changes (`git commit -m 'Add some amazing feature'`)
-5. Push to the branch (`git push origin feature/amazing-feature`)
-6. Open a Pull Request
-
-### Development Guidelines
-
-- Use type hints for all Python code
-- Follow PEP 8 style guidelines
-- Write unit tests for new functionality
-- Update documentation as needed
-
-## License
-
-This project is licensed under the terms of the license included in the [LICENSE](LICENSE) file.

@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Development Environment Instance'
+Description: 'Development Environment Instance for {{Environment}}'
 
 Parameters:
   ProjectTag:
@@ -28,6 +28,10 @@ Parameters:
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+  
+  CommandId:
+    Type: String
+    Description: Unique identifier for output command value
 
 Resources:
   DevInstance:
@@ -36,12 +40,12 @@ Resources:
       KeyName: !Ref KeyName
       LaunchTemplate:
         LaunchTemplateId: 
-          Fn::ImportValue: AgentDevEnv-LaunchTemplateId
+          {{LaunchTemplateId}}
         Version:
-          Fn::ImportValue: AgentDevEnv-LaunchTemplateVersion
+          {{LaunchTemplateVersion}}
       InstanceType: !Ref InstanceType
       SubnetId:
-        Fn::ImportValue: AgentDevEnv-PublicSubnet1Id
+        {{SubnetId}}
       Tags:
         - Key: Name
           Value: !Sub "${ProjectTag}-${UserName}-${InstanceType}"
@@ -68,3 +72,5 @@ Outputs:
   SSHCommand:
     Description: Command to SSH into the instance via Session Manager
     Value: !Sub "aws ssm start-session --target ${DevInstance} --document-name AWS-StartSSHSession --parameters 'portNumber=22'"
+    Export:
+      Name: !Ref CommandId

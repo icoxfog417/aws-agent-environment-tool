@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Development Environment Launch Template'
+Description: 'Development Environment Launch Template for Ubuntu'
 
 Parameters:
   ProjectTag:
@@ -94,9 +94,12 @@ Resources:
             mkdir tools
             cd tools
             curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh | bash
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-            [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+            echo 'export NVM_DIR="/home/ubuntu/.nvm"' >> /home/ubuntu/.bashrc
+            echo '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm' >> /home/ubuntu/.bashrc
+            # Dot source the files to ensure that variables are available within the current shell
+            . /home/ubuntu/.nvm/nvm.sh
+            . /home/ubuntu/.profile
+            . /home/ubuntu/.bashrc
             nvm install --lts
             nvm use --lts
             
@@ -107,6 +110,16 @@ Resources:
             
             # Install CDK
             npm install -g aws-cdk
+
+            # Install GitHub CLI
+            (type -p wget >/dev/null || (sudo apt update && sudo apt-get install wget -y)) \
+              && sudo mkdir -p -m 755 /etc/apt/keyrings \
+                    && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+                    && cat $out | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+              && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+              && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+              && sudo apt update \
+              && sudo apt install gh -y
 
             # Install Amazon Q Developer
             curl --proto '=https' --tlsv1.2 -sSf https://desktop-release.q.us-east-1.amazonaws.com/latest/amazon-q.deb -o amazon-q.deb
@@ -134,20 +147,14 @@ Resources:
                 Value: Development
 
 Outputs:
-  DevLaunchTemplateId:
-    Description: ID of the Development Environment Launch Template
-    Value: !Ref DevLaunchTemplate
+  LaunchTemplateId:
+    Description: ID of Launch Template
+    Value: !GetAtt DevLaunchTemplate.LaunchTemplateId
     Export:
-      Name: AgentDevEnv-LaunchTemplateId
-  
-  DevLaunchTemplateVersion:
-    Description: Latest version of the Development Environment Launch Template
+      Name: AgentDevEnv-ubuntu-LaunchTemplateId
+
+  LaunchTemplateVersion:
+    Description: Version of Launch Template
     Value: !GetAtt DevLaunchTemplate.LatestVersionNumber
     Export:
-      Name: AgentDevEnv-LaunchTemplateVersion
-      
-  DevSecurityGroupId:
-    Description: ID of the Development Security Group
-    Value: !Ref DevSecurityGroup
-    Export:
-      Name: AgentDevEnv-SecurityGroupId
+      Name: AgentDevEnv-ubuntu-LaunchTemplateVersion

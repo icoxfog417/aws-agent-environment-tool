@@ -20,19 +20,19 @@ Resources:
       OperatingSystem: UBUNTU
       ApprovalRules:
         PatchRules:
-          - ApproveAfterDays: 7
+          - ApproveAfterDays: 0
+            EnableNonSecurity: false
             ComplianceLevel: CRITICAL
             PatchFilterGroup:
               PatchFilters:
-                - Key: CLASSIFICATION
+                - Key: PRODUCT
                   Values:
-                    - Security
-                    - Bugfix
-                    - Enhancement
-                - Key: SEVERITY
+                    - '*'
+                - Key: PRIORITY
                   Values:
-                    - Critical
+                    - Required
                     - Important
+                    - Standard
       Tags:
         - Key: Project
           Value: !Ref ProjectTag
@@ -77,13 +77,10 @@ Resources:
         - Key: WindowTargetIds
           Values:
             - !Ref MaintenanceWindowTarget
-      TaskParameters: 
-        Operation:
-          Values:
-            - Install
-        RebootOption:
-          Values:
-            - RebootIfNeeded
+      TaskInvocationParameters:
+        MaintenanceWindowRunCommandParameters:
+          TimeoutSeconds: 600
+          Parameters: {"Operation":["Install"]}
       MaxConcurrency: 10
       MaxErrors: 5
 

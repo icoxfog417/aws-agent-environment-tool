@@ -25,18 +25,23 @@ Parameters:
     Type: String
     Description: Username for unique instance naming
 
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+
 Resources:
   DevInstance:
     Type: AWS::EC2::Instance
     Properties:
+      KeyName: !Ref KeyName
       LaunchTemplate:
         LaunchTemplateId: 
           Fn::ImportValue: AgentDevEnv-LaunchTemplateId
-        Version: 
+        Version:
           Fn::ImportValue: AgentDevEnv-LaunchTemplateVersion
       InstanceType: !Ref InstanceType
       SubnetId:
-        Fn::ImportValue: AgentDevEnv-PrivateSubnet1Id
+        Fn::ImportValue: AgentDevEnv-PublicSubnet1Id
       Tags:
         - Key: Name
           Value: !Sub "${ProjectTag}-${UserName}-${InstanceType}"

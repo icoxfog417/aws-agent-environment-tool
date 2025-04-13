@@ -26,7 +26,6 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-        - arn:aws:iam::aws:policy/PowerUserAccess  # Provides permissions for CDK deployments
       Path: /
       Tags:
         - Key: Project
@@ -64,9 +63,9 @@ Resources:
     Type: AWS::EC2::LaunchTemplate
     Properties:
       LaunchTemplateName: !Sub ${ProjectTag}-Dev-Environment
-      VersionDescription: Configurable development environment
+      VersionDescription: v1.1
       LaunchTemplateData:
-        ImageId: 'ami-04b4f1a9cf54c11d0'  # Ubuntu 24.04 LTS (x86_64)
+        ImageId: 'ami-084568db4383264d4' # 24.04, ami-0f9de6e2d2f067fca is for Ubuntu 22.04 LTS (x86_64)
         # InstanceType is not specified here - will be provided when launching
         IamInstanceProfile:
           Name: !Ref DevInstanceProfile
@@ -91,54 +90,27 @@ Resources:
             systemctl enable docker
             systemctl start docker
             
-            # Install latest nvm
-            export NVM_DIR="/usr/local/nvm"
-            mkdir -p $NVM_DIR
-            # Get the latest nvm version dynamically
-            LATEST_NVM=$(curl -s https://api.github.com/repos/nvm-sh/nvm/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\\1/')
-            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/$LATEST_NVM/install.sh | bash
-            
-            # Add nvm to system-wide profile
-            echo 'export NVM_DIR="/usr/local/nvm"' > /etc/profile.d/nvm.sh
-            echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> /etc/profile.d/nvm.sh
-            echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"' >> /etc/profile.d/nvm.sh
-            
-            # Load nvm and install Node.js 22
-            export NVM_DIR="/usr/local/nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-            nvm install 22
-            nvm alias default 22
-            nvm use default
-            
-            # Make node and npm available to all users
-            ln -sf $NVM_DIR/versions/node/v22*/bin/node /usr/local/bin/node
-            ln -sf $NVM_DIR/versions/node/v22*/bin/npm /usr/local/bin/npm
-            ln -sf $NVM_DIR/versions/node/v22*/bin/npx /usr/local/bin/npx
-            
-            # Install AWS CDK
-            npm install -g aws-cdk
+            # Install tools
+            mkdir tools
+            cd tools
+            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh | bash
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+            [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+            nvm install --lts
+            nvm use --lts
             
             # Install AWS CLI v2
             curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
             unzip awscliv2.zip
-            ./aws/install
+            sudo ./aws/install
             
-            # Configure AWS CLI to use instance profile credentials
-            mkdir -p /home/ubuntu/.aws
-            echo "[default]" > /home/ubuntu/.aws/config
-            echo "region = ${AWS::Region}" >> /home/ubuntu/.aws/config
-            echo "output = json" >> /home/ubuntu/.aws/config
-            chown -R ubuntu:ubuntu /home/ubuntu/.aws
-            
+            # Install CDK
+            npm install -g aws-cdk
+
             # Install Amazon Q Developer
             curl --proto '=https' --tlsv1.2 -sSf https://desktop-release.q.us-east-1.amazonaws.com/latest/amazon-q.deb -o amazon-q.deb
             apt install -y ./amazon-q.deb
-            
-            # Create a welcome message
-            NODE_VERSION=$(node -v)
-            echo "Welcome to your CDK development environment!" > /etc/motd
-            echo "Node.js ${NODE_VERSION} (via latest nvm) and AWS CDK are pre-installed." >> /etc/motd
-            echo "You can start developing and deploying CDK applications right away." >> /etc/motd
             
             # Register with Systems Manager
             aws ssm register-default-patch-baseline --region ${AWS::Region}

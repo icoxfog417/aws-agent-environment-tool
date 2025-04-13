@@ -56,7 +56,7 @@ Resources:
       Description: Configurable development environment with selectable instance type
       Owner: !ImportValue AgentDevEnv-PortfolioOwner
       ProvisioningArtifactParameters:
-        - Name: v1.0
+        - Name: v1.1
           Description: Initial version
           Info:
             LoadTemplateFromURL: !Sub 
@@ -91,7 +91,7 @@ Resources:
     Properties:
       PortfolioId: !ImportValue AgentDevEnv-PortfolioId
       PrincipalARN: 'arn:aws:iam:::role/*'
-      PrincipalType: IAMIAM_PATTERN
+      PrincipalType: IAM_PATTERN
 
 Outputs:
   DevEnvironmentProductId:

@@ -110,7 +110,7 @@ As an agent, you can launch your working environment:
 1. Launch a new environment:
 
 ```bash
-uv run python -m application.cli developer launch [--region REGION] [--type standard|high|extra]
+uv run python -m application.cli developer launch --key name [--region REGION] [--type standard|high|extra]
 ```
 
 2. Check the status of your environment:

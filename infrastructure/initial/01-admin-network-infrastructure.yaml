@@ -123,10 +123,10 @@ Outputs:
     Description: Public Subnet 1 ID
     Value: !Ref PublicSubnet1
     Export:
-      Name: AgentDevEnv-PrivateSubnet1Id
+      Name: AgentDevEnv-PublicSubnet1Id
   
   PublicSubnet2Id:
     Description: Public Subnet 2 ID
     Value: !Ref PublicSubnet2
     Export:
-      Name: AgentDevEnv-PrivateSubnet2Id
+      Name: AgentDevEnv-PublicSubnet2Id

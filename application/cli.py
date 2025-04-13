@@ -5,6 +5,7 @@ Onboarding CLI - A tool for managing development environments
 
 import os
 import sys
+import getpass
 import json
 import datetime
 import time
@@ -74,7 +75,7 @@ def deploy_cloudformation_stack(template_path: str, stack_name: str, region: str
                 Parameters=cf_parameters,
                 Capabilities=['CAPABILITY_NAMED_IAM'],
                 Tags=[
-                    {'Key': 'ManagedBy', 'Value': 'CloudFormation'},
+                    {'Key': 'ManagedBy', 'Value': 'Administrator'},
                     {'Key': 'Environment', 'Value': 'Development'}
                 ]
             )
@@ -85,7 +86,7 @@ def deploy_cloudformation_stack(template_path: str, stack_name: str, region: str
                 Parameters=cf_parameters,
                 Capabilities=['CAPABILITY_NAMED_IAM'],
                 Tags=[
-                    {'Key': 'ManagedBy', 'Value': 'CloudFormation'},
+                    {'Key': 'ManagedBy', 'Value': 'Administrator'},
                     {'Key': 'Environment', 'Value': 'Development'}
                 ]
             )
@@ -283,14 +284,15 @@ def admin_deploy(region: Optional[str], artifact_bucket_name: Optional[str]):
     click.echo(f"Artifact S3 bucket: {full_bucket_name}")
     click.echo("")
     click.echo(click.style("You can now launch development environments using:", fg="blue"))
-    click.echo("python -m application.cli developer launch [--region REGION] [--type standard|high|extra]")
+    click.echo("python -m application.cli developer launch --key keyname [--region REGION] [--type standard|high|extra]")
 
 
 @developer.command("launch")
-@click.option("--region", help="AWS region to deploy to")
-@click.option("--type", "env_type", type=click.Choice(["standard", "high", "extra"]), 
+@click.option("--region", required=True, help="AWS region to deploy to")
+@click.option("--type", "env_type", type=click.Choice(["standard", "high", "extra"]), required=True,
               help="Environment type (standard, high, or extra performance)")
-def developer_launch(region: Optional[str], env_type: Optional[str]):
+@click.option("--key", required=True, help="Key name")
+def developer_launch(region: str, env_type: str, key: str):
     """Launch a development environment from Service Catalog"""
     click.echo(click.style("=== Development Environment Launcher ===", fg="blue"))
     click.echo(click.style("This script will help you launch a development environment from Service Catalog", fg="yellow"))
@@ -299,11 +301,7 @@ def developer_launch(region: Optional[str], env_type: Optional[str]):
     if not check_aws_credentials():
         click.echo("Not authenticated with AWS. Please run 'aws sso login' first.", err=True)
         sys.exit(1)
-    
-    # Get region if not provided
-    if not region:
-        region = get_aws_region()
-    
+
     # Initialize Service Catalog client
     sc_client = boto3.client('servicecatalog', region_name=region)
     
@@ -330,7 +328,7 @@ def developer_launch(region: Optional[str], env_type: Optional[str]):
         # List products in the portfolio
         search_products_response = sc_client.search_products_as_admin(PortfolioId=portfolio_id)
         products = []
-        
+
         for product_view_detail in search_products_response.get('ProductViewDetails', []):
             product_view = product_view_detail.get('ProductViewSummary', {})
             products.append({
@@ -397,7 +395,7 @@ def developer_launch(region: Optional[str], env_type: Optional[str]):
         artifact_id = provisioning_artifacts[0].get('Id')
         
         # Get username for unique naming
-        username = os.getlogin()
+        username = getpass.getuser()
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         provisioned_product_name = f"{username}-dev-env-{timestamp}"
         
@@ -419,6 +417,10 @@ def developer_launch(region: Optional[str], env_type: Optional[str]):
                 {
                     'Key': 'UserName',
                     'Value': username
+                },
+                {
+                    'Key': 'KeyName',
+                    'Value': key
                 }
             ]
         )
